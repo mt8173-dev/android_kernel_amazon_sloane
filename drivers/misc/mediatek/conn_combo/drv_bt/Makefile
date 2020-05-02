@@ -1,0 +1,1 @@
+obj-$(CONFIG_MTK_COMBO_CHIP_MT7662) += mt76x2/

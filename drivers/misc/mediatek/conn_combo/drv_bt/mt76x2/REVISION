@@ -1,0 +1,41 @@
+
+2.0.0 (20140228) :
+	First revision of this revision history.
+
+2.0.1 (20140303) :
+	Print log for version number.
+
+2.0.2 (20140311) :
+	Update FW version to P46.
+
+2.0.3 (20140407) :
+	Update FW version to P47.
+	Add ROM patch checking mechanism.
+
+2.0.4 (20140520) :
+    Set low power mode.
+
+2.0.5 (20140529) :
+    Add new define value : BT_REDUCE_EP2_POLLING_INTERVAL_BY_INTR
+
+2.0.6 (20140531) :
+	Add new feature : read driver version from ioctl.
+2.0.7 (20140610) :
+	Update ROM patch  version to P53
+
+2.0.8 (20140712) :
+    Update ROM patch version to P54
+    Add new feature : read driver probe counter
+
+2.0.9 (20140818) :
+    Send HCI command before suspend.
+    Reduce ROM patch file loading time.
+
+2.0.10 (20140904) :
+    Bug fix for MT7632
+
+2.0.11 (20140929) :
+    Send HCI_RESET when no need to load rom patch.
+
+2.0.12 (20141001) :
+	Add FW assert log dump mechanism.

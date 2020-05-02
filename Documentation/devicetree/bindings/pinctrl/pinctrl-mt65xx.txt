@@ -1,0 +1,106 @@
+* Mediatek MT65XX Pin Controller
+
+The Mediatek's Pin controller is used to control GPIO pins.
+
+Required properties:
+- compatible: value should be either of the following.
+    (a) "mediatek,mt8135-pinctrl", compatible with mt8135 pinctrl.
+- reg: Should contain the register physical address and length for the
+  pin controller.
+- gpio-controller : Marks the device node as a gpio controller.
+- #gpio-cells: number of cells in GPIO specifier. Since the generic GPIO
+  binding is used, the amount of cells must be specified as 2. See the below
+  mentioned gpio binding representation for description of particular cells.
+
+	Eg: <&pio 6 0>
+	<[phandle of the gpio controller node]
+	[pin number within the gpio controller]
+	[flags]>
+
+	Values for gpio specifier:
+	- Pin number: is a value between 0 to 202.
+	- Flags:  bit field of flags, as defined in <dt-bindings/gpio/gpio.h>.
+            Only the following flags are supported:
+            0 - GPIO_ACTIVE_HIGH
+            1 - GPIO_ACTIVE_LOW
+
+Please refer to pinctrl-bindings.txt in this directory for details of the
+common pinctrl bindings used by client devices.
+
+A pinctrl node should contain at least one subnodes representing the
+pinctrl groups available on the machine. Each subnode will list the
+pins it needs, and how they should be configured, with regard to muxer
+configuration, pullups, drive strngth, input enable/disable and input schmitt.
+
+Required subnode-properties:
+
+- mediatek,pins: 2 integers array, represents gpio pinmux number and config
+    setting. The format is mediatek,pins = <PIN_NUMBER_PINMUX &phandle>.
+    The PIN_NUMBER_PINMUX is combination of GPIO number and pinmux, it can
+    use macros which already defind in boot/dts/mt8135-pinfunc.h directly.
+    The phandle of a node containing the generic pinconfig options
+    to use, bias-disable, bias-pull-down, bias-pull-up, input-enable,
+    input-disable, output-low, output-high, input-schmitt-enable, input-schmitt-disable
+    and drive-strength are valid.
+
+    When config bias-pull-up, some pins have the internal pull-up resistors,
+    user can choose to use R0, R1 or R0R1.
+
+    When config drive-strength, User can set the driving current from 2mA to 32mA,
+    some macros have already defined in dt-bindings/pinctrl/mt65xx.h.
+
+Examples:
+
+#include <dt-bindings/pinctrl/mt65xx.h>
+#include "mt8135-pinfunc.h"
+
+...
+
+pinctrl@01c20800 {
+	compatible = "mediatek,mt8135-pinctrl";
+	reg = <0 0x10005000 0 0x1000>;
+	gpio-controller;
+	#gpio-cells = <2>;
+
+	pcfg_pull_down: pcfg_pull_down {
+		bias-pull-down;
+	};
+
+	pcfg_pull_up: pcfg_pull_up {
+		bias-pull-up = <MTK_PUPD_SET_R0_10>;
+	};
+
+	pcfg_i2c_cfgs: pcfg_i2c_cfgs {
+		bias-disable;
+		drive-strength = <MTK_DRIVE_6mA>;
+		input-schmitt-enable;
+		...
+	};
+
+	pcfg_output_high: pcfg_output_high {
+		output-high;
+	};
+
+	i2c0_pins_a: i2c0@0 {
+		mediatek,pins = <MT8135_PIN_100_SDA0__FUNC_SDA0 &pcfg_pull_none>,
+				<MT8135_PIN_101_SCL0__FUNC_SCL0 &pcfg_pull_none>;
+	};
+
+	i2c1_pins_a: i2c1@0 {
+		mediatek,pins = <MT8135_PIN_195_SDA1__FUNC_SDA1 &pcfg_pull_up>,
+				<MT8135_PIN_196_SCL1__FUNC_SCL1 &pcfg_pull_up>;
+	};
+
+	i2c2_pins_a: i2c2@0
+		mediatek,pins = <MT8135_PIN_193_SDA2__FUNC_SDA2 &pcfg_i2c_cfgs>,
+				<MT8135_PIN_194_SCL2__FUNC_SCL2 &pcfg_i2c_cfgs>;
+	};
+
+	i2c3_pins_a: i2c3@0 {
+		mediatek,pins = <MT8135_PIN_35_SCL3__FUNC_SCL3 &pcfg_output_low>,
+				<MT8135_PIN_36_SDA3__FUNC_SDA3 &pcfg_output_low>;
+	};
+
+	...
+
+};

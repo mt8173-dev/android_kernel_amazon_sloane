@@ -1,0 +1,3 @@
+1. rm "mu3d_hal_hw.h" in mtk-phy.h
+2. add "mu3d_hal_hw.h" in xhci-mtk.h
+\ No newline at end of file

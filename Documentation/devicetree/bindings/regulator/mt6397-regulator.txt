@@ -1,0 +1,31 @@
+Mediatek mt6397 regulator
+
+Required properties:
+- compatible: "mediatek,mt6397"
+- regulators: This is the list of child nodes that specify the regulator
+  initialization data for defined regulators. The definition for each of these
+  nodes is defined using the standard binding for regulators found at
+  Documentation/devicetree/bindings/regulator/regulator.txt.
+
+Example:
+
+	pmic {
+		compatible = "mediatek,mt6397";
+
+		regulators {
+
+			mt6397_vpca15_reg: buck_vpca15 {
+				regulator-name = "vpca15";
+				regulator-min-microvolt = < 700000>;
+				regulator-max-microvolt = <1493750>;
+				regulator-always-on;
+				regulator-boot-on;
+			};
+
+			mt6397_vgp4_reg: ldo_vgp4 {
+				regulator-name = "vgp4";
+				regulator-min-microvolt = <1200000>;
+				regulator-max-microvolt = <3300000>;
+			};
+		};
+	};

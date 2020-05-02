@@ -1,0 +1,5 @@
+CHIPSET = mt7632 mt7662
+EXTRA_CFLAGS := -DMT7632 -DMT7662 -g
+MOD_NAME = btmtk_usb
+ccflags-y += -Werror
+obj-$(CONFIG_MTK_COMBO_CHIP_MT7662) += $(MOD_NAME).o

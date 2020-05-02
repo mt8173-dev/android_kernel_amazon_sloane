@@ -1,0 +1,24 @@
+
+#include "partition_define.h"
+
+static const struct excel_info PartInfo_Private[PART_NUM] = {
+	{"preloader", 262144, 0x0, EMMC, 255, EMMC_PART_BOOT1},
+	{"pgpt", 524288, 0x0, EMMC, 255, EMMC_PART_USER},
+	{"pro_info", 3145728, 0x80000, EMMC, 1, EMMC_PART_USER},
+	{"nvram", 5242880, 0x380000, EMMC, 2, EMMC_PART_USER},
+	{"protect_f", 10485760, 0x880000, EMMC, 3, EMMC_PART_USER},
+	{"protect_s", 10485760, 0x1280000, EMMC, 4, EMMC_PART_USER},
+	{"seccfg", 262144, 0x1c80000, EMMC, 5, EMMC_PART_USER},
+	{"uboot", 393216, 0x1cc0000, EMMC, 6, EMMC_PART_USER},
+	{"bootimg", 15728640, 0x1d20000, EMMC, 7, EMMC_PART_USER},
+	{"recovery", 10485760, 0x2c20000, EMMC, 8, EMMC_PART_USER},
+	{"sec_ro", 6291456, 0x3620000, EMMC, 9, EMMC_PART_USER},
+	{"misc", 524288, 0x3c20000, EMMC, 10, EMMC_PART_USER},
+	{"logo", 8388608, 0x3ca0000, EMMC, 11, EMMC_PART_USER},
+	{"expdb", 11927552, 0x44a0000, EMMC, 12, EMMC_PART_USER},
+	{"android", 838860800, 0x5000000, EMMC, 13, EMMC_PART_USER},
+	{"cache", 134217728, 0x37000000, EMMC, 14, EMMC_PART_USER},
+	{"usrdata", 1241513984, 0x3f000000, EMMC, 15, EMMC_PART_USER},
+	{"fat", 0, 0x89000000, EMMC, 16, EMMC_PART_USER},
+	{"sgpt", 524288, 0xFFFF0004, EMMC, 255, EMMC_PART_USER},
+};

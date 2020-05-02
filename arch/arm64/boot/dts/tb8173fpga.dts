@@ -1,0 +1,30 @@
+
+/dts-v1/;
+
+#include "mt8173.dtsi"
+
+/ {
+  memory@00000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x1FA00000>;
+	};
+	
+	soc{
+		pmic {
+			compatible = "mediatek,mt6397";
+			interrupt-parent = <&eintc>;
+			interrupts = <11 IRQ_TYPE_LEVEL_HIGH>;
+			};
+	};
+
+	bus {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0 0 0 0xffffffff>;
+  };
+
+	sound {
+		mediatek,board-channel-type = <0>; /* 0(Stereo) 1(MonoLeft) 2(MonoRight) */
+	};
+};

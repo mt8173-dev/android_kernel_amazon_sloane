@@ -1,0 +1,237 @@
+menuconfig MEDIATEK_SOLUTION
+	bool "MediaTek Properitary Configuration"
+	help
+	  Check this to enable MediaTek properity configuration.
+
+if MEDIATEK_SOLUTION
+
+config MTK_PLATFORM
+	string "MTK platform name"
+	default "mt8135" if ARCH_MT8135
+	default "mt6582" if ARCH_MT6582
+	default "mt6595" if ARCH_MT6595
+
+config ARCH_MTK_PROJECT
+	string "MTK project name"
+
+config FPGA_EARLY_PORTING
+	bool "FPGA_EARLY_PORTING"
+	help
+	  Used for FPGA early porting to separate code segments between FPGA
+	  platform and non-FPGA platform
+
+config MTK_TC1_FEATURE
+	bool "MTK_TC1_FEATURE"
+	default n
+
+#
+# Security related feature
+#
+
+config HAVE_MTK_IN_HOUSE_TEE_SUPPORT
+	def_bool n
+
+config MTK_IN_HOUSE_TEE_SUPPORT
+	bool "Enable MTK In House TEE Support"
+	depends on HAVE_MTK_IN_HOUSE_TEE_SUPPORT
+	default n
+	help
+	  This enable MTK TEE support.
+
+config HAVE_TRUSTONIC_TEE_SUPPORT
+	def_bool n
+
+#
+# TRUSTONIC TEE configuration
+#
+config TRUSTONIC_TEE_SUPPORT
+	bool "Enable Trustonic TEE Support"
+	depends on HAVE_TRUSTONIC_TEE_SUPPORT
+	default n
+	---help---
+	  Enable Trustonic TEE Support
+
+#
+# MobiCore configuration
+#
+config MOBICORE_DRIVER
+	tristate "MobiCore Driver"
+	depends on TRUSTONIC_TEE_SUPPORT
+	default n
+	---help---
+	  Enable Linux Kernel MobiCore Support
+
+config MOBICORE_DEBUG
+	bool "MobiCore Module debug mode"
+	depends on MOBICORE_DRIVER
+	default n
+	---help---
+	  Enable Debug mode in the MobiCore Driver.
+	  It enables printing information about mobicore operations
+
+config MOBICORE_VERBOSE
+	bool "MobiCore Module verbose debug mode"
+	depends on MOBICORE_DEBUG
+	default n
+	---help---
+	  Enable Verbose Debug mode in the MobiCore Driver.
+	  It enables printing extra information about mobicore operations
+	  Beware: this is only useful for debuging deep in the driver because
+	  it prints too much logs
+
+config MOBICORE_API
+	tristate "Linux MobiCore API"
+	depends on MOBICORE_DRIVER
+	default n
+	---help---
+	  Enable Linux Kernel MobiCore API
+
+config MTK_SEC_VIDEO_PATH_SUPPORT
+	bool "Enable MTK Secure Video Path Support"
+	depends on (MTK_IN_HOUSE_TEE_SUPPORT) || (TRUSTONIC_TEE_SUPPORT)
+	default n
+	help
+	  This enable MTK Secure Video Path Support. (depending on MTK In-House TEE Support or Trustonic TEE Support)
+
+config MTK_SEC_WFD_VIDEO_PATH_SUPPORT
+	bool "Enable MTK Secure WFD Video Path Support"
+	depends on MTK_SEC_VIDEO_PATH_SUPPORT
+	depends on MTK_IN_HOUSE_TEE_SUPPORT
+	default n
+	help
+	  This enable MTK WFD Secure Video Path Support.
+
+config MTK_SEC_HDMI_VIDEO_PATH_SUPPORT
+	bool "Enable MTK Secure HDMI Video Path Support"
+	depends on MTK_SEC_VIDEO_PATH_SUPPORT
+	depends on MTK_IN_HOUSE_TEE_SUPPORT
+	default n
+	help
+	  This enable MTK HDMI Secure Video Path Support.
+
+config MTK_DRM_KEY_MNG_SUPPORT
+	bool "MTK_DRM_KEY_MNG_SUPPORT"
+	depends on MTK_IN_HOUSE_TEE_SUPPORT
+	default n
+	help
+	   support MTK DRM Key Management
+
+config MTK_SECURITY_SW_SUPPORT
+	bool "MTK_SECURITY_SW_SUPPORT"
+	help
+	   MTK_SECURITY_SW_SUPPORT=yes==> All security function in pre-
+	   loader/LK/kernel/android will be built into software images
+
+config MTK_SEC_MODEM_NVRAM_ANTI_CLONE
+	bool "MTK_SEC_MODEM_NVRAM_ANTI_CLONE"
+	help
+	  This option is used to enable modem NVRAM anti-clone functionality
+	  [dependency_relationship]: yes If this option is turned on, the
+	  modem part should also turn on for the following setting 1. Modem
+	  project file CUSTOM_OPTION += __NVRAM_BIND_TO_CHIP_CIPHER__ 2. by
+	  default, only two LID is defaulted has MSP attribute
+	  (1)NVRAM_EF_SML_LID (2)NVRAM_EF_SIM_LOCK_LID 3. if want to turn on
+	  specific LID, please add attribute NVRAM_ATTR_MSP
+
+# Custom
+menu "Mediatek CUSTOM Settings"
+config CUSTOM_KERNEL_ACCELEROMETER
+	bool "CUSTOM_KERNEL_ACCELEROMETER"
+	help
+	  accelerometer sensor to detect accelerometer from x y z axis.
+
+config CUSTOM_KERNEL_BAROMETER
+	bool "CUSTOM_KERNEL_BAROMETER"
+	help
+	  Pressure sensor driver to detect pressure
+
+config CUSTOM_KERNEL_ALSPS
+	bool "CUSTOM_KERNEL_ALSPS"
+	help
+	  ALSPS sensor driverto detect ambint light and the object is close
+	  or far awary from device
+
+config CUSTOM_KERNEL_EXTMD
+	string "CUSTOM_KERNEL_EXTMD"
+
+config CUSTOM_KERNEL_FLASHLIGHT
+	string "CUSTOM_KERNEL_FLASHLIGHT"
+	help
+	   Kernel space cameara flashlight driver. You can use this driver
+	   choose cameara flashlight type.
+
+config CUSTOM_KERNEL_GYROSCOPE
+	bool "CUSTOM_KERNEL_GYROSCOPE"
+	help
+	   gyro driver
+
+config CUSTOM_KERNEL_HDMI
+	string "CUSTOM_KERNEL_HDMI"
+	help
+	   Specify HDMI external IC type.
+
+config CUSTOM_KERNEL_IMGSENSOR
+	string "CUSTOM_KERNEL_IMGSENSOR"
+	help
+	  Kernel space image sensor driver. Define  project used all image
+	  sensors .The value is combination of CUSTOM_KERNEL_MAIN_IMGSENSOR,
+	  CUSTOM_KERNEL_MAIN_BACKUP_IMGSENSOR, CUSTOM_KERNEL_SUB_IMGSENSOR,
+	  and CUSTOM_KERNEL_SUB_BACKUP_IMGSENSOR
+
+config CUSTOM_KERNEL_LCM
+	string "CUSTOM_KERNEL_LCM"
+	help
+	  To choose kernel LCM driver name
+
+config CUSTOM_KERNEL_MAGNETOMETER
+	bool "CUSTOM_KERNEL_MAGNETOMETER"
+	help
+	   compass driver to detect compass raw data and report orientatino
+	   data
+
+config CUSTOM_KERNEL_OFN
+	bool "CUSTOM_KERNEL_OFN"
+
+config CUSTOM_KERNEL_TOUCHPANEL
+	string "CUSTOM_KERNEL_TOUCHPANEL"
+	help
+	   touch driver  need to report correct touch axes
+
+config CUSTOM_SEC_AUTH_SUPPORT
+	bool "CUSTOM_SEC_AUTH_SUPPORT"
+	help
+	   Support customer to implement and apply their own RSA security
+	   functions
+
+config CUSTOM_KERNEL_SSW
+	bool "CUSTOM_KERNEL_SSW"
+	help
+	  sim switch hardware
+
+config MTK_ALPS_BOX_SUPPORT
+	bool "MTK_ALPS_BOX_SUPPORT"
+	default n
+	help
+	  This enable MTK HDMI Main Path Support.
+
+config MT8173_BOX_SUPPORT
+	bool "MT8173_BOX_SUPPORT"
+	default n
+	help
+	  Support MT8173 box.
+
+config MTK_CMDQ_TEST_PROC
+	bool "MTK_CMDQ_TEST_PROC"
+	default n
+	help
+	  Support cmdq proc test
+endmenu
+
+source "drivers/misc/mediatek/Kconfig.kernel"
+source "drivers/misc/mediatek/Kconfig.connect"
+source "drivers/misc/mediatek/Kconfig.media"
+source "drivers/misc/mediatek/Kconfig.power"
+source "drivers/misc/mediatek/Kconfig.storage"
+source "drivers/misc/mediatek/Kconfig.drivers"
+
+endif

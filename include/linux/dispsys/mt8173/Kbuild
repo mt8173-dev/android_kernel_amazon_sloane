@@ -1,0 +1,8 @@
+
+header-y += ddp_drv.h
+header-y += ddp_gamma.h
+header-y += ddp_hal.h
+header-y += ddp_aal.h
+header-y += disp_event.h
+header-y += ddp_tdshp_index.h
+header-y += ddp_color_index.h

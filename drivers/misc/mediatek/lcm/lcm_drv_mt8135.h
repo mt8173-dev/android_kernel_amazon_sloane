@@ -1,0 +1,5 @@
+extern LCM_DRIVER cm_n070ice_dsi_vdo_mt8135_lcm_drv;
+extern LCM_DRIVER nt35521_wxga_dsi_vdo_hh060ia_lcm_drv;
+extern LCM_DRIVER nt51012_wxga_dsi_vdo_lcm_drv;
+
+

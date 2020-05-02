@@ -1,0 +1,80 @@
+menu "MediaTek WLAN Config"
+config MTK_COMBO
+	tristate "MediaTek Connectivity Combo Chip Support"
+	default n
+	help
+	  MTK connectivity combo chip driver for MT66xx
+
+#
+# MTK Combo Chip Selection
+#
+choice
+	prompt "Select Chip"
+	depends on MTK_COMBO
+
+config MTK_COMBO_CHIP_MT6620
+	bool "MT6620"
+
+config MTK_COMBO_CHIP_MT6628
+	bool "MT6628"
+
+config MTK_COMBO_CHIP_MT6630
+	bool "MT6630"
+	
+endchoice
+config MTK_COMBO_CHIP
+	string
+	default "MT6620" if MTK_COMBO_CHIP_MT6620
+	default "MT6628" if MTK_COMBO_CHIP_MT6628
+	default "MT6630" if MTK_COMBO_CHIP_MT6630
+	help
+	  this feature is used to identify combo chip version or SOC chip
+	  consys version.
+config MTK_WLAN_CHIP
+	string "MTK_WLAN_CHIP"
+	default "MT6620" if MTK_COMBO_CHIP_MT6620
+	default "MT6628" if MTK_COMBO_CHIP_MT6628
+	default "MT6630" if MTK_COMBO_CHIP_MT6630
+	help
+	  Define the wlan chip, the MTK_WLAN_SUPPORT must be set yes
+config MTK_WLAN_SUPPORT
+	bool "MTK_WLAN_SUPPORT"
+	help
+	  The Wlan switch for the wlan feature in the Android(app,
+	  framework, native, kernel).
+
+config MTK_WAPI_SUPPORT
+	bool "MTK_WAPI_SUPPORT"
+	depends on MTK_WLAN_SUPPORT
+	help
+	  if it is set to TRUE: Support WAPI (WLAN Authentication and
+	  Privacy Infrastructure)
+
+config MTK_PASSPOINT_R1_SUPPORT
+	bool "MTK_PASSPOINT_R1_SUPPORT"
+	help
+	  Support Passpoint R1 (Hotspot 2.0 R1)
+
+config MTK_PASSPOINT_R2_SUPPORT
+	bool "MTK_PASSPOINT_R2_SUPPORT"
+	help
+	   Support Passpoint R2
+
+config MTK_COMBO_WIFI
+	tristate "MediaTek combo chip Wi-Fi support"
+	depends on MTK_COMBO
+	depends on !mt592x
+	select WIRELESS_EXT
+	select WEXT_PRIV
+
+config MTK_DHCPV6C_WIFI
+	bool "MTK_DHCPV6C_WIFI"
+	help
+	  no: disable this feature
+
+config MTK_WFD_SUPPORT
+	bool "MTK_WFD_SUPPORT"
+	help
+	  Wi-Fi Display Switch
+
+endmenu

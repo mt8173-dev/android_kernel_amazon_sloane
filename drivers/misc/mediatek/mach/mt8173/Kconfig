@@ -1,0 +1,26 @@
+
+if ARCH_MT8173
+
+comment "MT8173 boards support"
+
+config TB8173_EVB
+	bool "Support TB8173 EVB board"
+
+config TB8173_P1
+	bool "Support TB8173 P1 board"
+
+config TB8173_BLOFELD
+	bool "Support TB8173 Blofeld board"
+
+config BX8173_P1
+	bool "Support BX8173 P1 board"
+
+config MAGNA
+        bool "Support TB8173 MAGNA board"
+
+config BX8173_P12
+	bool "Support BX8173 P1V2 board"
+
+config SLOANE
+	bool "Sloane or blofeld TV/Box project"
+endif

@@ -1,0 +1,131 @@
+
+/dts-v1/;
+
+#include "mt8173.dtsi"
+
+/ {
+  memory@00000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x3F200000>;
+	};
+
+	mtk-msdc {
+		MSDC3@0x11260000 {
+			status = "disabled";
+		};
+	};
+
+	soc{
+		pmic {
+			compatible = "mediatek,mt6397";
+			interrupt-parent = <&eintc>;
+			interrupts = <11 IRQ_TYPE_LEVEL_HIGH>;
+			};
+	};
+
+	bus {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0 0 0 0xffffffff>;
+
+		I2C0@0x11007000 {
+			synaptics@20 {
+				compatible = "mtk-tpd,synaptics";
+				reg = <0x20>;
+				reg-vgp6-supply = <&mt6397_vgp6_reg>;
+				reg-vgp4-supply = <&mt6397_vgp4_reg>;
+			};
+		};
+		I2C1@0x11008000 {
+			da9212-regulator {
+				compatible = "dlg,da9212-regulator";
+				#address-cells = <0>;
+				reg = <0x68>;
+				regulators {
+					da9212_vcpu_reg: BUCKA {
+						regulator-name = "VBUCKA";
+						regulator-min-microvolt = < 700000>;
+						regulator-max-microvolt = <1310000>;
+						regulator-min-microamp 	= <2000000>;
+						regulator-max-microamp 	= <4400000>;
+						regulator-ramp-delay = <10000>;
+						en-gpio = <&pio 123 0>;
+					};
+					da9212_vgpu_reg: BUCKB {
+						regulator-name = "VBUCKB";
+						regulator-min-microvolt = < 700000>;
+						regulator-max-microvolt = <1310000>;
+						regulator-min-microamp 	= <2000000>;
+						regulator-max-microamp 	= <3000000>;
+						regulator-ramp-delay = <10000>;
+						regulator-boot-on;
+					};
+				};
+			};
+		};
+
+		SSUSB@0x11270000 {
+			port-num = <2>; /* is the max(u2-ports, u3-ports) */
+			drv-mode = <3>; /* 1: host, 2: device, 3 dual-mode */
+			str-mode = <1>; /* 0: none for tablet, 1: alive for wifi-bt-eth, 2: deep str*/
+			otg-mode = <2>; /* 0: srp-hnp, 1: iddig-eint, 2: manual */
+			is-u3-otg = <0>; /* device is usb3.0? */
+			wakeup-src = <0>; /* bit0: iddig, bit1: linestate-0p, bit2: linestate-1p */
+			init-as-host = <0>;  /* 0: device, 1: host */
+			p0-vbus-mode = <2>; /* 0: default on, 1: by charger ic, 2: gpio */
+			p0-gpio = <&pioE 12 0>; /* gpio-ext-num = 135 + 12, 0: high level valid */
+			p1-vbus-mode = <0>;
+			reg-usbnet33-supply = <&mt6397_vgp6_reg>; /* for usbnet-lan9500 */
+		};
+
+		pinctrl@0x10005000 {
+			pinctrl-names = "default";
+			pinctrl-0 = <&state_default>;
+
+			state_default:pinctrl@0x10005000 {
+			};
+
+			pcfg_irrx_cfgs:irda_rxd {
+                    		mediatek,pins = <MT8173_PIN_1_EINT1__FUNC_IRDA_RXD &pcfg_pull_none>;
+            };
+			pcfg_bt_wake_up:bt_wake_up {
+                    		mediatek,pins = <MT8173_PIN_100_MSDC2_DAT0__FUNC_GPIO100 &pcfg_pull_up>;
+            };
+		};
+
+		pinctrl@0x0000C000 {/*External gpio pinctrl*/
+		};
+
+		IRRX@0x1100c000 {
+			pinctrl-names = "box_using";
+			pinctrl-0 = <&pcfg_irrx_cfgs>;
+			irrx-power-supply = <&mt6397_vmch_reg>;
+		};
+	};
+
+	sound {
+		mediatek,board-channel-type = <0>; /* 0(Stereo) 1(MonoLeft) 2(MonoRight) */
+	};
+
+	mediatek,mt-soc-codec {
+		mediatek,speaker-mode = <0>; /* 0(CLASSD) 1(CLASSAB) */
+	};
+
+	MSDC1_INS@2 {
+		compatible = "mediatek,MSDC1_INS-eint";
+		interrupt-parent = <&eintc>;
+		interrupts = <2 IRQ_TYPE_LEVEL_LOW>;
+		gpio-pullen = <0x10005100 0x4>;	/* GPIO1 pull enable(reg-base, mask(1-enable,0-disable)) */
+		gpio-pullsel = <0x10005200 0x4>;	/* GPIO1 pull select(reg-base, mask(1-HIGH,0-LOW)) */
+		debounce = <1 1000>;
+	};
+
+	mediatek,mt76xx_bt_ctrl {
+		compatible = "mediatek,mt76xx_bt_ctrl";
+		interrupt-parent = <&eintc>;
+		interrupts = < 100 IRQ_TYPE_LEVEL_LOW >;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pcfg_bt_wake_up>;
+	};
+};

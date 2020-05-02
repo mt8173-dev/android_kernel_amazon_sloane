@@ -1,0 +1,276 @@
+#
+# All config related to media(FB/audio/av codec/hdmi/mhl/wfd/GPU/camera...) goes here.
+#
+
+menu "Media Drivers (FB/AV codec/HDMI/MHL/WFD/GPU/Camera)"
+
+config MTK_OVERLAY_ENGINE_SUPPORT
+	bool "Enable MTK Overlay Engine Support"
+	default n
+	help
+	  This enable MTK Video Path Overlay Engine Support.
+
+# Frame Buffer Related
+menuconfig MTK_FB # FB_MT6516 FB_MT6573
+	bool "MediaTek Framebuffer Driver"
+	depends on FB
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select FB_SOFT_CURSOR
+	---help---
+	  This selects the MediaTek(R) frame buffer driver.
+	  If you want to use MediaTek(R) frame buffer diver, say Y here.
+	  If unsure, say N.
+
+config MTK_FB_SUPPORT_ASSERTION_LAYER # FB_MT6516_SUPPORT_ASSERTION_LAYER
+	bool "AEE Assertion Layer Support"
+	depends on MTK_FB
+	select FONT_8x16
+	default y
+	---help---
+	  This enable support for AEE assertion layer.
+	  If you want to enable AEE assertion layer support, say Y here.
+	  If unsure, say N.
+
+config ION_MTK
+	bool "Mediatek ION Memory Manager"
+
+config MTK_M4U_SUPPORT
+	bool "MTK_M4U_SUPPORT"
+	help
+	   Used to enable or disable multimedia HW to access non-physical-
+	   continuous memory. yes: multimedia HW can access non-physical-
+	   continuous memory directly. no: multimedia HW can only access
+	   physical continuous memory just like other common HW DMA.
+
+# Graphics 2D
+config MTK_G2D # MT6516_G2D
+	bool "MediaTek G2D Driver"
+	default y
+	---help---
+	  MT6516 G2D Driver
+
+# RGX Config
+config PVR_RGX_MT8135
+	tristate "PowerVR RGX support"
+	depends on ARCH_MT8135
+	default m
+	---help---
+	  Enable this option to build support for the PowerVR RGX 3D core.
+
+choice
+	prompt "PowerVR build type"
+	depends on PVR_RGX_MT8135
+	default PVR_BUILD_RELEASE_MT8135
+
+config PVR_BUILD_RELEASE_MT8135
+	bool "Release"
+
+config PVR_BUILD_DEBUG_MT8135
+	bool "Debug"
+
+endchoice
+
+config MTK_GPU_CHIP
+	string "MTK_GPU_CHIP"
+	default "RGX_HAN" if PVR_RGX_MT8135
+	help
+	   This feature option is used to distinguish the version of GPU.
+	   Different GPU has different shader compiler. We can use correctly
+	   shader compiler to compiler our shaders by this option
+
+config MTK_GPU_SUPPORT
+	bool "MTK_GPU_SUPPORT"
+	default y if PVR_RGX_MT8135
+	help
+	   MTK_GPU_SUPPORT=yes, means support HW GPU
+
+# TODO check what's MT6516_EVB_BOARD
+config MTK_FB_EVB_USE_HVGA_LCM # FB_MT6516_EVB_USE_HVGA_LCM
+	bool "Use MagnaChip TA7601 HVGA LCM on EVB"
+	depends on FB_MT6516 && MT6516_EVB_BOARD
+	default n
+	---help---
+	  Use MagnaChip TA7601 HVGA LCM on EVB
+
+config MTK_DITHERING_SUPPORT
+	bool "MTK_DITHERING_SUPPORT"
+	help
+	  To control whether enable or disable LCD controller dithering
+	  feature. If choose yes,  LCD controller would do dithering to
+	  avoid contour effect, but side effect is that dithering mechanism
+	  will make some noises
+
+source "drivers/misc/mediatek/lcm/Kconfig"
+
+config MTK_LCM_PHYSICAL_ROTATION
+	string "MTK_LCM_PHYSICAL_ROTATION"
+	help
+	   To set the angle between dimension of UI layout and LCM scan
+	   direction
+
+config LCM_HEIGHT
+	string "LCM_HEIGHT"
+	default "1920"
+	help
+	  To set LCM resolution height size
+
+config LCM_WIDTH
+	string "LCM_WIDTH"
+	default "1080"
+	help
+	  To set LCM resolution width size
+
+
+comment "Codecs"
+
+# Video Related
+config MTK_MPEG4_DEC_DRIVER # MT6516_Mpeg4_Decoder_Driver
+	tristate "MediaTek MPEG4 Decoder Driver"
+	default y
+
+config MTK_MPEG4_ENC_DRIVER # MT6516_Mpeg4_Encoder_Driver
+	tristate "MediaTek MPEG4 Encoder Driver"
+	default y
+
+config MTK_H264_DEC_DRIVER # MT6516_H264_Decoder_Driver
+	tristate "MediaTek H264 Decoder Driver"
+	default y
+
+config MTK_MFLEXVIDEO_DRIVER # MT6573_MFlexVideo_Driver
+	tristate "MediaTek MFlexVideo Driver"
+	default y
+
+config MTK_VIDEOCODEC_DRIVER # MT6575_Video_Codec_Driver
+	tristate "MediaTek VideoCodec Driver"
+	default y
+
+config MTK_VIDEO_HEVC_SUPPORT
+	bool "MTK_VIDEO_HEVC_SUPPORT"
+	help
+	  This option is for HEVC playback/record feature
+
+# Jpeg
+config MTK_JPEG # JPEG_MT6516 (no JPEG_MT6573, but 6573 is supported!)
+	tristate "MediaTek JPEG driver"
+	default y
+
+
+comment "HDMI/TVOut"
+
+config MTK_TVOUT_SUPPORT
+	bool "MTK_TVOUT_SUPPORT"
+	help
+	  To control whether enable or disable TV-out feature. If choose
+	  yes, video or image on your phone can be demonstrated on TV via
+	  TV-out cable. Also, this feature can help user to get more fun
+	  when playing some games.
+
+config MTK_MT8193_SUPPORT
+	bool "MTK_MT8193_SUPPORT"
+
+# HDMI
+config MTK_HDMI_SUPPORT
+	bool "MTK_HDMI_SUPPORT"
+	help
+	   To control whether enable or disable HDMI feature. If choose yes,
+	   phone's screen can be demonstrated on TV via HDMI cable.
+
+config MTK_MT8193_HDMI_SUPPORT
+	bool "MTK_MT8193_HDMI_SUPPORT"
+	depends on MTK_HDMI_SUPPORT
+	depends on MTK_MT8193_SUPPORT
+
+config MTK_MT8193_HDCP_SUPPORT
+	bool "MTK_MT8193_HDCP_SUPPORT"
+	help
+	  Enable hdmi tx hdcp support
+
+config MTK_INTERNAL_HDMI_SUPPORT
+	bool "MTK_INTERNAL_HDMI_SUPPORT"
+	depends on MTK_HDMI_SUPPORT
+	help
+	   To switch language set. Because some language need third party
+	   font support, these language should be removed on custom project
+	   first to avoid build error. It is no longer valid after
+	   ALPS.GB.TDFD_MP.
+
+config MTK_HDMI_HDCP_SUPPORT
+	bool "MTK_HDMI_HDCP_SUPPORT"
+	depends on MTK_HDMI_SUPPORT
+	help
+	   Enable hdmi tx hdcp support
+
+config MTK_INTERNAL_MHL_SUPPORT
+	bool "MTK_INTERNAL_MHL_SUPPORT"
+	help
+	   Enable internal mhl tx  support
+
+config MTK_WFD_SUPPORT
+	bool "MTK_WFD_SUPPORT"
+	help
+	   yes/no
+
+
+comment "Camera"
+
+config MTK_IMGSENSOR_HI253YUV_SUPPORT
+	bool "hi253_yuv Image Sensor Driver"
+
+config MTK_IMGSENSOR_HI704YUV_SUPPORT
+	bool "hi704_yuv Image Sensor Driver"
+
+config MTK_IMGSENSOR_HI704RAW_SUPPORT
+	bool "hi704_raw Image Sensor Driver"
+
+config MTK_IMGSENSOR_OV2722MIPIRAW_SUPPORT
+	bool "ov2722_mipi_raw Image Sensor Driver"
+
+config MTK_IMGSENSOR_OV2724MIPIRAW_SUPPORT
+	bool "ov2724_mipi_raw Image Sensor Driver"
+
+config MTK_IMGSENSOR_OV9724MIPIRAW_SUPPORT
+	bool "ov9724_mipi_raw Image Sensor Driver"
+
+config MTK_IMGSENSOR_IMX135MIPIRAW_SUPPORT
+        bool "imx135_mipi_raw Image Sensor Driver"
+
+config MTK_IMGSENSOR_OV5648MIPI_SUPPORT
+        bool "ov5648_mipi_raw Image Sensor Driver"
+
+config MTK_IMGSENSOR_S5K2P8MIPI_SUPPORT
+        bool "s5k2p8_mipi_raw Image Sensor Driver"
+
+config MTK_IMGSENSOR_S5K4ECGXMIPIYUV_SUPPORT
+        bool "s5k4ecgx_mipi_yuv Image Sensor Driver"
+
+config MTK_IMGSENSOR_OV2659YUV_SUPPORT
+        bool "ov2659_yuv Image Sensor Driver"
+
+config MTK_IMGSENSOR_S5K5E2YAMIPIRAW_SUPPORT
+        bool "s5k5e2ya_mipi_raw Image Sensor Driver"
+
+config MTK_EEPROM_DUMMYEEPROM_SUPPORT
+	bool "Dummy EEPROM Driver"
+
+config MTK_CAMCAL_DUMMYCAMCAL_SUPPORT
+	bool "Dummy cam_cal Driver"
+
+config MTK_FLASHLIGHT_DUMMYFLASHLIGHT_SUPPORT
+	bool "Dummy Flashlight Driver"
+
+config MTK_FLASHLIGHT_CONSTANTFLASHLIGHT_SUPPORT
+	bool "Constant Flashlight Driver"
+	help
+		set yes to eanble Flashlight driver
+
+config MTK_LENS_DUMMYLENS_SUPPORT
+	bool "Dummy Lens Driver"
+
+config MTK_LENS_DW9718AF_SUPPORT
+	bool "DW9718AF Lens Driver"
+	help
+		set yes to enable AF lens driver: dw9718af
+
+endmenu

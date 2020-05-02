@@ -1,0 +1,489 @@
+menu "Misc Drivers Settings (LDVT/USB/Sensors/others...)"
+menuconfig MTK_LDVT
+	bool "LDVT"
+	depends on ARCH_MT6589 || ARCH_MT8135 || ARCH_MT6582 || ARCH_MT6595 || ARCH_MT8173
+	default n
+	---help---
+	  Say Y here for supporting LDVT
+
+if MTK_LDVT
+
+config MTK_LDVT_SAMPLE
+	bool "MediaTek sample driver for LDVT"
+	default y
+	---help---
+	  MediaTek sample driver for LDVT
+config MTK_LDVT_ADC
+	bool "MediaTek ADC driver for LDVT"
+	default y
+	---help---
+	  MediaTek ADC driver for LDVT
+
+config MTK_LDVT_ADC_TS
+	bool "MediaTek ADC_TS driver for LDVT"
+	default y
+	---help---
+
+config MTK_LDVT_GPT
+	bool "MediaTek GPT driver for LDVT"
+	default y
+	---help---
+	  MediaTek GPT driver for LDVT
+
+config MTK_LDVT_KP
+	bool "MediaTek KP driver for LDVT"
+	default y
+	---help---
+	  MediaTek KP driver for LDVT
+
+config MTK_LDVT_I2C
+	bool "MediaTek I2C driver for LDVT"
+	default y
+	---help---
+	  MediaTek I2C driver for LDVT
+
+config MTK_LDVT_IRDA
+	bool "MediaTek IrDA driver for LDVT"
+	default y
+	---help---
+	  MediaTek IrDA driver for LDVT
+
+config MTK_LDVT_MSDC
+	bool "MediaTek MSDC driver for LDVT"
+	default y
+	---help---
+	  MediaTek MSDC driver for LDVT
+
+config MTK_LDVT_UART
+	bool "MediaTek UART driver for LDVT"
+	default y
+	---help---
+	  MediaTek UART driver for LDVT
+
+config MTK_LDVT_PWM
+	bool "MediaTek PWM driver for LDVT"
+	default y
+	---help---
+	  MediaTek PWM driver for LDVT
+
+config MTK_LDVT_SPI
+	bool "MediaTek SPI driver for LDVT"
+	default y
+	---help---
+	  MediaTek SPI driver for LDVT
+
+config MTK_LDVT_PMIC
+	bool "MediaTek PMIC driver for LDVT"
+	default y
+	---help---
+	  MediaTek PMIC driver for LDVT
+
+config MTK_LDVT_PMIC_WRAP
+	bool "MediaTek PMIC_WRAP driver for LDVT"
+	default y
+	---help---
+	  MediaTek PMIC_WRAP driver for LDVT
+
+config MTK_LDVT_VDEC
+	bool "MediaTek VDEC driver for LDVT"
+	default n
+	---help---
+	  MediaTek VDEC driver for LDVT
+
+config MTK_LDVT_UDVT
+	bool "MediaTek UDVT driver for LDVT"
+	default n
+	---help---
+	  MediaTek UDVT driver for LDVT
+	  
+endif
+
+config MTK_SMARTBOOK_SUPPORT
+	bool "MTK_SMARTBOOK_SUPPORT"
+	help
+	  Smartbook feature enables phone to connect with a smartbook
+	  device. A smartbook device is something like a notebook, it has
+	  screen, keyboard, touchpad, speaker, dual usb port, led light, yet
+	  it doesn't have a internal storage, ram or CPU. Once smartbook-
+	  feature-enabled phone is connected to a smartbook, all content on
+	  phone screen is shown on smartbook screen, and user can operate
+	  the phone via smartbook's keyboard, touchpad or plugged usb mouse.
+
+config MTK_LEGACY_GPIO_DRIVER
+	bool "Provide MTK legacy GPIO driver API"
+	default y
+	help
+	   Enable this if you have drivers still using legacy MTK GPIO
+	   driver API. Drivers should be changed to use new MTK GPIO APIs.
+	   This option is provided to help smother transition. Eventually,
+	   legacy GPIO driver should go away.
+
+# Accdet
+config MTK_ACCDET # ACCDET
+	bool "MediaTek Accessory Detection Support"
+	default n
+
+
+config MTK_IDLE_TIME_FIX
+	tristate "MediaTek fix top get idle time issue"
+	default n
+
+# RTC
+config MTK_RTC # RTC_DRV_MT6516 RTC_DRV_MT6573
+	bool "MediaTek Real Time Clock Support"
+	default y
+
+# Touch Panel
+config MTK_TOUCHPANEL # TOUCHSCREEN_MT6516 TOUCHSCREEN_MT6573
+	tristate "MediaTek Touch Panel Driver"
+	help
+	  Say Y here if you have MediaTek MT6516 touch panel.
+	  If unsure, say N.
+
+# I2C Bus
+config MTK_I2C #I2C_MT6516 I2C_MT6573
+	tristate "MediaTek I2C adapter"
+	depends on I2C
+	depends on ARCH_MT6595
+	default y
+	---help---
+	  This selects the MediaTek(R) Integrated Inter Circuit bus driver.
+	  If you want to use MediaTek(R) I2C interface, say Y or M here.
+	  If unsure, say N.
+
+#SPI
+config MTK_SPI
+	tristate "MediaTek SPI controller"
+	depends on SPI
+	default y
+	---help---
+	  This selects the MediaTek(R) SPI bus driver.
+	  If you want to use MediaTek(R) SPI interface, say Y or M here.  If unsure, say N.
+
+# Leds
+config MTK_LEDS # LEDS_MT65XX
+	tristate "MediaTek LED Support"
+	depends on LEDS_CLASS
+	---help---
+	  This selects the MediaTek(R) LEDs connected to MediaTek chips.
+	  If you want to use MediaTek(R) LEDs support, say Y or M here.
+	  If unsure, say N.
+
+config MD32_SUPPORT
+	bool "Specifiy If Platform Support MD32"
+	default n
+
+config AMPC_CDEV_NUM
+	int "AMPC chard device number(never change this value)"
+	default 151
+	help
+	  AMPC char device number.
+
+config MTK_MULTIBRIDGE_SUPPORT
+	bool "MTK_MULTIBRIDGE_SUPPORT"
+	help
+	   MTK_MULTIBRIDGE_SUPPORT = yes, means with companion chip and it
+	   will define the chip name by CUSTOM_KERNEL_MULTIBRIDGE .
+	   MTK_MULTIBRIDGE_SUPPORT = No, means no companion chip with.
+
+config MTK_CTP_RESET_CONFIG
+	bool "MTK_CTP_RESET_CONFIG"
+	help
+	  Reset TP IC for avoiding issue of DL wrong load. yes: Use in
+	  internal. no: For customer release
+
+config MTK_BICR_SUPPORT
+	bool "MTK_BICR_SUPPORT"
+	help
+
+config MTK_SENSOR_SUPPORT
+	bool "MTK_SENSOR_SUPPORT"
+	help
+	  sensor config to sensor port sensor feature in project
+
+config MTK_AAL_SUPPORT
+	bool "MediaTek Ambient-light Adaptive Luma(AAL) driver"
+	default y
+	---help---
+	  Should be enabled to support AAL. If you enabled MTK_AAL_SUPPORT
+	  in user space, you must build in this corresponding driver.
+
+config MTK_AUTO_DETECT_ACCELEROMETER
+	bool "MTK_AUTO_DETECT_ACCELEROMETER"
+	depends on MTK_SENSOR_SUPPORT
+	help
+	  one load to support different accelerometer sensor
+
+config MTK_AUTO_DETECT_MAGNETOMETER
+	bool "MTK_AUTO_DETECT_MAGNETOMETER"
+	depends on MTK_SENSOR_SUPPORT
+	help
+	  one load to support different magnetometer sensor
+
+config MTK_AUTO_DETECT_ALSPS
+	bool "MTK_AUTO_DETECT_ALSPS"
+	help
+	  This feature Option is used for projects which using more than one
+	  ALSPS sensors, more than one ALSPS drivers can be builded in to
+	  project and be auto detected by setting this option to yes
+
+# Vibrator
+config MTK_VIBRATOR # MT6516_VIBRATOR MT6573_VIBRATOR
+	bool "MediaTek Vibrator Driver"
+	default y
+
+# WatchDog
+config MTK_WD_KICKER # WD_KICKER
+	tristate "WatchDog Kicer"
+	default y
+	---help---
+	Watch dog kicker is a module in the kernel for kicking the watch dog
+
+#DRM Key Management
+config MTK_DRM_KEY_MNG_SUPPORT
+	bool "Enable MTK DRM KEY MNG SUPPORT"
+	depends on MTK_IN_HOUSE_TEE_SUPPORT
+	default n
+	help
+	  This enable MTK DRM KEY MNG SUPPORT.
+
+# Mouse
+# if INPUT_MOUSE
+menu "MediaTek OFN / Jogball Related Drivers"
+config MOUSE_PANASONIC_EVQWJN
+	bool "Panasonic EVQWJN Jogball Support"
+	---help---
+	  Say Y here if you have Panasonic EVQWJN Jogball
+	  If unsure, say N.
+
+config MOUSE_AVAGOTECH_A320
+	bool "Avagotech ADBS-A320 driver"
+	---help---
+	  Say Y here if you have ADBS-A320 device, which is a Optical Finger Navigation device
+	  If unsure, say N.
+endmenu
+# endif
+
+# Serial Port Driver
+menuconfig MTK_SERIAL # SERIAL_MT6516 SERIAL_MT6573
+	tristate "MediaTek Serial Port Support"
+	select SERIAL_CORE
+	default y
+	---help---
+	  This selects MediaTek(R) internal UART driver.
+	  If you want to use MediaTek(R) internal UART driver, say Y or M here.
+	  If unsure, say N.
+
+config MTK_SERIAL_CONSOLE # SERIAL_MT6516_CONSOLE SERIAL_MT6573_CONSOLE
+	bool "MediaTek Console on Serial Port Support"
+	depends on MTK_SERIAL=y
+	select SERIAL_CORE_CONSOLE
+	default y
+	---help---
+	  Say Y here if you wish to use MT6516 internal UART as the system
+	  console. You should alter the default console setting by kernel
+	  command line option "console=ttyMT0" or "console=ttyMT1".
+
+config MTK_SERIAL_MODEM_TEST # SERIAL_MT6516_MODEM_TEST (will add in MT6573)
+	bool "Support modem test"
+	depends on MTK_SERIAL=y
+	default n
+	---help---
+	  Say Y here is you want to enable modem test. After enabling this
+	  option, UART4 will be switched to modem side. Hence, the command
+	  line parameter should be also modified.
+
+
+comment "MTK USB"
+
+# USB # TODO Check Choice
+config MTK_USB_GADGET # USB_GADGET_MT6516 USB_GADGET_MT6573
+	boolean "MediaTek USB Gadget Driver"
+	select USB_GADGET_SELECTED
+	select USB_GADGET_DUALSPEED
+	default y
+
+# For MTK USB3.0 IP++++
+config USB_MU3D_DRV
+	tristate "MediaTek MU3D Gadget support"
+	default n
+	help
+	  Say Y if support Gadget based on MediaTek USB3.0 Device controller.
+	  If unsure, say N.
+
+config MU3_PHY
+	bool "MU3 PHY"
+	default n
+	---help---
+	  Enables support MU3 PHY for SSUSB or XHCI.
+	  If unsure, say N.
+
+config U3_PHY_GPIO_SUPPORT
+	bool "MU3 PHY registers access by I2C"
+	depends on MU3_PHY
+	default n
+	---help---
+	  Enables support for read/write PHY registers by external I2C.
+	  If unsure, say N.
+
+config U3_PHY_AHB_SUPPORT
+	bool "MU3 PHY registers access by AHB"
+	depends on MU3_PHY
+	default n
+	---help---
+	  Enables support for read/write PHY registers by internal AHB.
+	  If unsure, say N.
+
+config MTK_XHCI
+	tristate "MediaTek U3 XHCI support"
+		default n
+	---help---
+	  Enables support Mediatek U3 XHCI functions.
+	  If unsure, say N.
+
+config MTK_TEST_XHCI
+	tristate "MediaTek U3 TEST XHCI driver support"
+		default n
+	---help---
+	  Enables support Mediatek U3 XHCI test driver kernel framework.
+	  If unsure, say N.
+
+config C60802_SUPPORT
+	bool "MU3 PHY C60802 support"
+	depends on MU3_PHY
+	default n
+	---help---
+	  Enables support for external PHY(Ver C).
+	  If unsure, say N.
+
+config D60802_SUPPORT
+	bool "MU3 PHY D60802 support"
+	depends on MU3_PHY
+	default n
+	---help---
+	  Enables support for external PHY(Ver D).
+	  If unsure, say N.
+
+config E60802_SUPPORT
+	bool "MU3 PHY E60802 support"
+	depends on MU3_PHY
+	default n
+	---help---
+	  Enables support for external PHY(Ver E).
+	  If unsure, say N.
+
+config PROJECT_PHY
+	bool "MU3 ASIC PHY support"
+	depends on MU3_PHY
+	default n
+	---help---
+	  Enables support for ASIC PHY.
+	  If unsure, say N.
+
+config PHY0_U2_CURRENT_DETECT
+	bool "U2 CURRENT DYNAMIC DETECTIONG"
+	depends on MU3_PHY
+	default n
+	---help---
+	  Enable it if dynamically select current source of u2-phy0
+	  which are internal current or U3 current; it's add only for
+	  mt8173-magna platform. so for others, disable it anyway.
+	  If unsure, say N.
+
+# For MTK USB3.0 IP-----
+
+config USB_MTK_HDRC
+	tristate "MediaTek MUSB support"
+	select USB_GADGET_SELECTED
+	select USB_GADGET_DUALSPEED
+	default y
+
+config USB_MTK_HDRC_GADGET
+	 tristate "MediaTek MUSB Gadget support"
+
+config USB_MTK_OTG
+	tristate "MediaTek MUSB OTG support"
+
+config USB_MTK_DUALMODE
+	bool "MediaTek DUAL MODE support"
+	default n
+
+config USB_MTK_DEBUG_FS
+	tristate "MediaTek MUSB Debug FS support"
+	depends on DEBUG_FS
+
+config USB_MTK_DEBUG
+	 tristate "MediaTek MUSB Debug support"
+config USB_MTK_HDRC_HCD
+	 tristate "MediaTek MUSB Debug support"
+
+config MTK_USB_UNIQUE_SERIAL
+	 tristate "MediaTek USB unique serial number"
+
+config MTK_USBFSH # USBFSH
+	bool "MediaTek USB fullspeed Host driver"
+	default n
+
+config MUSBFSH_PIO_ONLY # USBFSH_transfer mode
+	bool "Transfer mode of MediaTek USB fullspeed Host driver"
+	default n
+
+config USB_MTK_ACM_TEMP
+	tristate "MediaTek USB ACM Temp support"
+	default y
+
+#
+# MTK PASR mechanism
+#
+
+config MTKPASR
+	bool "MTK proprietary PASR mechanism"
+	depends on SYSFS && ZSMALLOC && ARM && HIGHMEM
+	depends on ARCH_MT6595
+	select LZO_COMPRESS
+	select LZO_DECOMPRESS
+	default n
+	help
+	  Mediatek PASR mechanism
+
+config MTKPASR_RDIRECT
+	bool "Bank scanning direction"
+	depends on MTKPASR
+	default y
+	help
+	  Scanning direction of MTKPASR
+
+config MTKPASR_MAFL
+	bool "Mark it As Free by removing page blocks from buddy allocator to its List"
+	depends on MTKPASR
+	default y
+	help
+	  Enhance the PASR performance on collecting free banks
+
+config MTKPASR_ALLEXTCOMP
+	bool "No ZRAM/SWAP"
+	depends on MTKPASR
+	default n
+
+config MTKPASR_DEBUG
+	bool "MTK proprietary PASR debug support"
+	depends on MTKPASR
+	default n
+	help
+	  This option adds additional debugging code to MTK PASR
+
+config MTKPASR_NO_LASTBANK
+	bool "Modem occupies last bank"
+	depends on MTKPASR
+	default n
+	
+config MTK_IRRX_SUPPORT  
+	tristate "MTK_IRRX support"
+	depends on MEDIA_SUPPORT && MEDIA_RC_SUPPORT 
+	default y
+	help
+	  Say Y here if you want do use Remote Controller
+	  If unsure, say N.
+
+endmenu
+

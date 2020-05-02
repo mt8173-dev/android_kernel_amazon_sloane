@@ -1,0 +1,103 @@
+#include <dt-bindings/clock/mt8173-clk.h>
+
+/ {
+	clocks {
+		clk_null: clk_null {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <0>;
+		};
+
+		clk26m: clk26m {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <26000000>;
+		};
+
+		clk32k: clk32k {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <32000>;
+		};
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		topckgen: topckgen@10000000 {
+			compatible = "mediatek,mt8173-topckgen";
+			reg = <0 0x10000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		infrasys: infrasys@10001000 {
+			compatible = "mediatek,mt8173-infrasys";
+			reg = <0 0x10001000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		perisys: perisys@10003000 {
+			compatible = "mediatek,mt8173-perisys";
+			reg = <0 0x10003000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		apmixedsys: apmixedsys@10209000 {
+			compatible = "mediatek,mt8173-apmixedsys";
+			reg = <0 0x10209000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		audiosys: audiosys@112200000 {
+			compatible = "mediatek,mt8173-audiosys";
+			reg = <0 0x11220000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		mfgsys: mfgsys@13fff000 {
+			compatible = "mediatek,mt8173-mfgsys";
+			reg = <0 0x13fff000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		mmsys: mmsys@14000000 {
+			compatible = "mediatek,mt8173-mmsys";
+			reg = <0 0x14000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		imgsys: imgsys@15000000 {
+			compatible = "mediatek,mt8173-imgsys";
+			reg = <0 0x15000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		vdecsys: vdecsys@16000000 {
+			compatible = "mediatek,mt8173-vdecsys";
+			reg = <0 0x16000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		vencsys: vencsys@18000000 {
+			compatible = "mediatek,mt8173-vencsys";
+			reg = <0 0x18000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		vencltsys: vencltsys@19000000 {
+			compatible = "mediatek,mt8173-vencltsys";
+			reg = <0 0x19000000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+
+		scpsys: scpsys@10001000 {
+			compatible = "mediatek,mt8173-scpsys";
+			reg = <0 0x10001000 0 0x1000>, <0 0x10006000 0 0x1000>, <0 0x13fff000 0 0x1000>;
+			#clock-cells = <1>;
+		};
+	};
+};
+
