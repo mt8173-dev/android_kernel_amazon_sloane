@@ -243,8 +243,17 @@ static inline struct page *page_cache_alloc_readahead(struct address_space *x)
 
 typedef int filler_t(void *, struct page *);
 
+pgoff_t page_cache_next_hole(struct address_space *mapping,
+                             pgoff_t index, unsigned long max_scan);
+
+extern struct page * find_get_page_flags(struct address_space *mapping,
+					 pgoff_t index, int fgp_flags);
+
+#define FGP_ACCESSED		0x00000001
+
 extern struct page * find_get_page(struct address_space *mapping,
 				pgoff_t index);
+
 extern struct page * find_lock_page(struct address_space *mapping,
 				pgoff_t index);
 extern struct page * find_or_create_page(struct address_space *mapping,
@@ -391,7 +400,7 @@ static inline int wait_on_page_locked_killable(struct page *page)
 	return 0;
 }
 
-/* 
+/*
  * Wait for a page to be unlocked.
  *
  * This must be called with the caller "holding" the page,
@@ -404,7 +413,7 @@ static inline void wait_on_page_locked(struct page *page)
 		wait_on_page_bit(page, PG_locked);
 }
 
-/* 
+/*
  * Wait for a page to complete writeback
  */
 static inline void wait_on_page_writeback(struct page *page)
@@ -482,56 +491,56 @@ static inline int fault_in_pages_readable(const char __user *uaddr, int size)
  */
 static inline int fault_in_multipages_writeable(char __user *uaddr, int size)
 {
-	int ret = 0;
 	char __user *end = uaddr + size - 1;
 
 	if (unlikely(size == 0))
-		return ret;
+		return 0;
 
+	if (unlikely(uaddr > end))
+		return -EFAULT;
 	/*
 	 * Writing zeroes into userspace here is OK, because we know that if
 	 * the zero gets there, we'll be overwriting it.
 	 */
-	while (uaddr <= end) {
-		ret = __put_user(0, uaddr);
-		if (ret != 0)
-			return ret;
+	do {
+		if (unlikely(__put_user(0, uaddr) != 0))
+			return -EFAULT;
 		uaddr += PAGE_SIZE;
-	}
+	} while (uaddr <= end);
 
 	/* Check whether the range spilled into the next page. */
 	if (((unsigned long)uaddr & PAGE_MASK) ==
 			((unsigned long)end & PAGE_MASK))
-		ret = __put_user(0, end);
+		return __put_user(0, end);
 
-	return ret;
+	return 0;
 }
 
 static inline int fault_in_multipages_readable(const char __user *uaddr,
 					       int size)
 {
 	volatile char c;
-	int ret = 0;
 	const char __user *end = uaddr + size - 1;
 
 	if (unlikely(size == 0))
-		return ret;
+		return 0;
 
-	while (uaddr <= end) {
-		ret = __get_user(c, uaddr);
-		if (ret != 0)
-			return ret;
+	if (unlikely(uaddr > end))
+		return -EFAULT;
+
+	do {
+		if (unlikely(__get_user(c, uaddr) != 0))
+			return -EFAULT;
 		uaddr += PAGE_SIZE;
-	}
+	} while (uaddr <= end);
 
 	/* Check whether the range spilled into the next page. */
 	if (((unsigned long)uaddr & PAGE_MASK) ==
 			((unsigned long)end & PAGE_MASK)) {
-		ret = __get_user(c, end);
-		(void)c;
+		return __get_user(c, end);
 	}
 
-	return ret;
+	return 0;
 }
 
 int add_to_page_cache_locked(struct page *page, struct address_space *mapping,

@@ -1,6 +1,9 @@
 #ifndef _SCHED_RT_H
 #define _SCHED_RT_H
 
+#define MAX_NICE       19
+#define MIN_NICE       -20
+
 /*
  * Priority of a process goes from 0..MAX_PRIO-1, valid RT
  * priority is 0..MAX_RT_PRIO-1, and SCHED_NORMAL/SCHED_BATCH
@@ -19,9 +22,6 @@
 
 #define MAX_PRIO		(MAX_RT_PRIO + 40)
 #define DEFAULT_PRIO		(MAX_RT_PRIO + 20)
-
-#define MAX_NICE       19
-#define MIN_NICE       -20
 
 /*
  * Convert user-nice values [ -20 ... 0 ... 19 ]

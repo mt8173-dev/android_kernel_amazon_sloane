@@ -652,4 +652,3 @@ const struct inode_operations ext4_file_inode_operations = {
 	.get_acl	= ext4_get_acl,
 	.fiemap		= ext4_fiemap,
 };
-

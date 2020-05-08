@@ -153,18 +153,24 @@ over:
 	if (get_nr_files() > old_max) {
 #ifdef FILE_OVER_MAX
 		static int fd_dump_all_files;
+
 		if (!fd_dump_all_files) {
 			struct task_struct *p;
-			pr_info(FS_TAG "(PID:%d)files %ld over old_max:%ld",
-				current->pid, get_nr_files(), old_max);
-			for_each_process(p) {
-				pid_t pid = p->pid;
-				struct files_struct *files = p->files;
-				struct fdtable *fdt = files_fdtable(files);
-				if (files && fdt)
-					fd_show_open_files(pid, files, fdt);
-			}
+			struct files_struct *files;
 			fd_dump_all_files = 0x1;
+			for_each_process(p) {
+				files = p->files;
+				if (files) {
+					struct fdtable *fdt = files_fdtable(files);
+
+					if (fdt) {
+						pid_t pid = p->pid;
+						pr_err("[FDLEAK]dump FDs for [%d:%s]\n", pid,
+							p->comm);
+						fd_show_open_files(pid, files, fdt);
+					}
+				}
+			}
 		}
 #endif
 		pr_info("VFS: file-max limit %lu reached\n", get_max_files());
@@ -287,18 +293,15 @@ static void __fput(struct file *file)
 	mntput(mnt);
 }
 
-static DEFINE_SPINLOCK(delayed_fput_lock);
-static LIST_HEAD(delayed_fput_list);
+static LLIST_HEAD(delayed_fput_list);
 static void delayed_fput(struct work_struct *unused)
 {
-	LIST_HEAD(head);
-	spin_lock_irq(&delayed_fput_lock);
-	list_splice_init(&delayed_fput_list, &head);
-	spin_unlock_irq(&delayed_fput_lock);
-	while (!list_empty(&head)) {
-		struct file *f = list_first_entry(&head, struct file, f_u.fu_list);
-		list_del_init(&f->f_u.fu_list);
-		__fput(f);
+	struct llist_node *node = llist_del_all(&delayed_fput_list);
+	struct llist_node *next;
+
+	for (; node; node = next) {
+		next = llist_next(node);
+		__fput(llist_entry(node, struct file, f_u.fu_llist));
 	}
 }
 
@@ -328,7 +331,6 @@ void fput(struct file *file)
 {
 	if (atomic_long_dec_and_test(&file->f_count)) {
 		struct task_struct *task = current;
-		unsigned long flags;
 
 		file_sb_list_del(file);
 		if (likely(!in_interrupt() && !(task->flags & PF_KTHREAD))) {
@@ -336,10 +338,9 @@ void fput(struct file *file)
 			if (!task_work_add(task, &file->f_u.fu_rcuhead, true))
 				return;
 		}
-		spin_lock_irqsave(&delayed_fput_lock, flags);
-		list_add(&file->f_u.fu_list, &delayed_fput_list);
-		schedule_work(&delayed_fput_work);
-		spin_unlock_irqrestore(&delayed_fput_lock, flags);
+
+		if (llist_add(&file->f_u.fu_llist, &delayed_fput_list))
+			schedule_work(&delayed_fput_work);
 	}
 }
 

@@ -164,10 +164,7 @@ int inode_init_always(struct super_block *sb, struct inode *inode)
 	mapping->a_ops = &empty_aops;
 	mapping->host = inode;
 	mapping->flags = 0;
-
-        mapping_set_gfp_mask(mapping, (GFP_HIGHUSER_MOVABLE & ~__GFP_HIGHMEM) | __GFP_SLOWHIGHMEM);
-        //mapping_set_gfp_mask(mapping, GFP_HIGHUSER_MOVABLE);
-
+	mapping_set_gfp_mask(mapping, GFP_HIGHUSER_MOVABLE);
 	mapping->private_data = NULL;
 	mapping->backing_dev_info = &default_backing_dev_info;
 	mapping->writeback_index = 0;
@@ -336,8 +333,10 @@ EXPORT_SYMBOL(set_nlink);
  */
 void inc_nlink(struct inode *inode)
 {
-	if (WARN_ON(inode->i_nlink == 0))
+	if (unlikely(inode->i_nlink == 0)) {
+		WARN_ON(!(inode->i_state & I_LINKABLE));
 		atomic_long_dec(&inode->i_sb->s_remove_count);
+	}
 
 	inode->__i_nlink++;
 }
@@ -1602,12 +1601,12 @@ int should_remove_suid(struct dentry *dentry)
 }
 EXPORT_SYMBOL(should_remove_suid);
 
-static int __remove_suid(struct dentry *dentry, int kill)
+static int __remove_suid(struct vfsmount *mnt, struct dentry *dentry, int kill)
 {
 	struct iattr newattrs;
 
 	newattrs.ia_valid = ATTR_FORCE | kill;
-	return notify_change(dentry, &newattrs);
+	return notify_change2(mnt, dentry, &newattrs);
 }
 
 int file_remove_suid(struct file *file)
@@ -1630,7 +1629,7 @@ int file_remove_suid(struct file *file)
 	if (killpriv)
 		error = security_inode_killpriv(dentry);
 	if (!error && killsuid)
-		error = __remove_suid(dentry, killsuid);
+		error = __remove_suid(file->f_path.mnt, dentry, killsuid);
 	if (!error && (inode->i_sb->s_flags & MS_NOSEC))
 		inode->i_flags |= S_NOSEC;
 
