@@ -1,0 +1,6 @@
+header-y += cmdq_core.h
+header-y += cmdq_def.h
+header-y += cmdq_driver.h
+header-y += cmdq_event.h
+header-y += cmdq_device.h
+header-y += cmdq_subsys.h

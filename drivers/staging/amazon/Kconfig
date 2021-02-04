@@ -1,0 +1,29 @@
+menu "Amazon"
+
+config AMAZON
+	bool "Amazon Drivers"
+	default N
+	---help---
+	  Enable support for various drivers needed on the Amazon Fire OS platform
+
+if AMAZON
+
+config AMAZON_KLOG_CONSOLE
+	bool "Amazon Kernel Log Console"
+	depends on ANDROID_LOGGER
+	default N
+	---help---
+	  provide the kernel log console which will rewrite the kernel message to Android Logger buffer.
+
+config AMAZON_SIGN_OF_LIFE
+	bool "Amazon Sign of Life"
+	help
+          enable the life cycle metrics to log device boot and shutdown information
+
+config AMAZON_SIGN_OF_LIFE_MTK
+	bool "Amazon Sign of Life MTK platform implementation"
+	help
+          enable the life cycle metrics to log device boot and shutdown information on MTK Platform
+endif # if AMAZON
+
+endmenu

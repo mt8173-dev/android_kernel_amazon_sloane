@@ -419,6 +419,24 @@ int ip6_forward(struct sk_buff *skb)
 		return -ETIMEDOUT;
 	}
 
+#ifdef CONFIG_MTK_IPV6_TETHER_NDP_MODE
+	/* mtk80842: for unicast NA/NS/RA */
+	{
+		struct ipv6hdr *hdr = ipv6_hdr(skb);
+		if(hdr->nexthdr == NEXTHDR_ICMP){
+			struct icmp6hdr *ndhdr = icmp6_hdr(skb);		
+			printk(KERN_WARNING "%s: icmp6_type = %d\n",__FUNCTION__, ndhdr->icmp6_type);
+			if(ndhdr->icmp6_type == NDISC_ROUTER_ADVERTISEMENT || 
+				ndhdr->icmp6_type == NDISC_NEIGHBOUR_SOLICITATION ||
+				ndhdr->icmp6_type == NDISC_NEIGHBOUR_ADVERTISEMENT){
+				ndp_forward(skb);
+				kfree_skb(skb);
+				return 0;
+			}
+		}	
+	}
+#endif
+
 	/* XXX: idev->cnf.proxy_ndp? */
 	if (net->ipv6.devconf_all->proxy_ndp &&
 	    pneigh_lookup(&nd_tbl, net, &hdr->daddr, skb->dev, 0)) {
@@ -1215,14 +1233,16 @@ int ip6_append_data(struct sock *sk, int getfrag(void *from, char *to,
 		np->cork.tclass = tclass;
 		if (rt->dst.flags & DST_XFRM_TUNNEL)
 			mtu = np->pmtudisc == IPV6_PMTUDISC_PROBE ?
-			      rt->dst.dev->mtu : dst_mtu(&rt->dst);
+			      ACCESS_ONCE(rt->dst.dev->mtu) : dst_mtu(&rt->dst);
 		else
 			mtu = np->pmtudisc == IPV6_PMTUDISC_PROBE ?
-			      rt->dst.dev->mtu : dst_mtu(rt->dst.path);
+			      ACCESS_ONCE(rt->dst.dev->mtu) : dst_mtu(rt->dst.path);
 		if (np->frag_size < mtu) {
 			if (np->frag_size)
 				mtu = np->frag_size;
 		}
+		if (mtu < IPV6_MIN_MTU)
+			return -EINVAL;
 		cork->fragsize = mtu;
 		if (dst_allfrag(rt->dst.path))
 			cork->flags |= IPCORK_ALLFRAG;

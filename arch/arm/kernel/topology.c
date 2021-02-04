@@ -23,7 +23,23 @@
 #include <linux/slab.h>
 
 #include <asm/cputype.h>
+#include <asm/smp_plat.h>
 #include <asm/topology.h>
+
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+#define CPU_DOMAIN_BUGON
+DEFINE_PER_CPU(struct cpu_domain *, cmp_cpu_domain) = {NULL};
+spinlock_t cluster_lock;
+LIST_HEAD(cpu_domains);
+static unsigned int nr_clusters = 0;
+static void init_cpu_domains(int cpuid, int socket_id);
+#endif
+#ifdef CONFIG_MTK_SCHED_CMP_PACK_SMALL_TASK
+int arch_sd_share_power_line(void)
+{
+	return 0*SD_SHARE_POWERLINE;
+}
+#endif /* CONFIG_MTK_SCHED_CMP_PACK_SMALL_TASK */
 
 /*
  * cpu power scale management
@@ -203,6 +219,13 @@ static inline void update_cpu_power(unsigned int cpuid, unsigned int mpidr) {}
 struct cputopo_arm cpu_topology[NR_CPUS];
 EXPORT_SYMBOL_GPL(cpu_topology);
 
+#ifdef CONFIG_HMP_PACK_SMALL_TASK
+int arch_sd_share_power_line(void)
+{
+	return 0*SD_SHARE_POWERLINE;
+}
+#endif /* CONFIG_HMP_PACK_SMALL_TASK */
+
 const struct cpumask *cpu_coregroup_mask(int cpu)
 {
 	return &cpu_topology[cpu].core_sibling;
@@ -278,6 +301,10 @@ void store_cpu_topology(unsigned int cpuid)
 		cpuid_topo->core_id = 0;
 		cpuid_topo->socket_id = -1;
 	}
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+	if(cpuid_topo->socket_id != -1)	
+		init_cpu_domains(cpuid, cpuid_topo->socket_id);
+#endif  
 
 	update_siblings_masks(cpuid);
 
@@ -288,6 +315,140 @@ void store_cpu_topology(unsigned int cpuid)
 		cpu_topology[cpuid].core_id,
 		cpu_topology[cpuid].socket_id, mpidr);
 }
+
+/*
+ * cluster_to_logical_mask - return cpu logical mask of CPUs in a cluster
+ * @socket_id:		cluster HW identifier
+ * @cluster_mask:	the cpumask location to be initialized, modified by the
+ *			function only if return value == 0
+ *
+ * Return:
+ *
+ * 0 on success
+ * -EINVAL if cluster_mask is NULL or there is no record matching socket_id
+ */
+int cluster_to_logical_mask(unsigned int socket_id, cpumask_t *cluster_mask)
+{
+	int cpu;
+
+	if (!cluster_mask)
+		return -EINVAL;
+
+	for_each_online_cpu(cpu)
+		if (socket_id == topology_physical_package_id(cpu)) {
+			cpumask_copy(cluster_mask, topology_core_cpumask(cpu));
+			return 0;
+		}
+
+	return -EINVAL;
+}
+
+
+#ifdef CONFIG_SCHED_HMP
+
+static const char * const little_cores[] = {
+	"arm,cortex-a7",
+	NULL,
+};
+
+static bool is_little_cpu(struct device_node *cn)
+{
+	const char * const *lc;
+	for (lc = little_cores; *lc; lc++)
+		if (of_device_is_compatible(cn, *lc))
+			return true;
+	return false;
+}
+
+void __init arch_get_fast_and_slow_cpus(struct cpumask *fast,
+					struct cpumask *slow)
+{
+	struct device_node *cn = NULL;
+	int cpu;
+
+	cpumask_clear(fast);
+	cpumask_clear(slow);
+
+	/*
+	 * Use the config options if they are given. This helps testing
+	 * HMP scheduling on systems without a big.LITTLE architecture.
+	 */
+	if (strlen(CONFIG_HMP_FAST_CPU_MASK) && strlen(CONFIG_HMP_SLOW_CPU_MASK)) {
+		if (cpulist_parse(CONFIG_HMP_FAST_CPU_MASK, fast))
+			WARN(1, "Failed to parse HMP fast cpu mask!\n");
+		if (cpulist_parse(CONFIG_HMP_SLOW_CPU_MASK, slow))
+			WARN(1, "Failed to parse HMP slow cpu mask!\n");
+		return;
+	}
+
+	/*
+	 * Else, parse device tree for little cores.
+	 */
+	while ((cn = of_find_node_by_type(cn, "cpu"))) {
+
+		const u32 *mpidr;
+		int len;
+
+		mpidr = of_get_property(cn, "reg", &len);
+		if (!mpidr || len != 4) {
+			pr_err("* %s missing reg property\n", cn->full_name);
+			continue;
+		}
+
+		cpu = get_logical_index(be32_to_cpup(mpidr));
+		if (cpu == -EINVAL) {
+			pr_err("couldn't get logical index for mpidr %x\n",
+							be32_to_cpup(mpidr));
+			break;
+		}
+
+		if (is_little_cpu(cn))
+			cpumask_set_cpu(cpu, slow);
+		else
+			cpumask_set_cpu(cpu, fast);
+	}
+
+	if (!cpumask_empty(fast) && !cpumask_empty(slow))
+		return;
+
+	/*
+	 * We didn't find both big and little cores so let's call all cores
+	 * fast as this will keep the system running, with all cores being
+	 * treated equal.
+	 */
+	cpumask_setall(fast);
+	cpumask_clear(slow);
+}
+
+struct cpumask hmp_fast_cpu_mask;
+struct cpumask hmp_slow_cpu_mask;
+
+void __init arch_get_hmp_domains(struct list_head *hmp_domains_list)
+{
+	struct hmp_domain *domain;
+
+	arch_get_fast_and_slow_cpus(&hmp_fast_cpu_mask, &hmp_slow_cpu_mask);
+
+	/*
+	 * Initialize hmp_domains
+	 * Must be ordered with respect to compute capacity.
+	 * Fastest domain at head of list.
+	 */
+	if(!cpumask_empty(&hmp_slow_cpu_mask)) {
+		domain = (struct hmp_domain *)
+			kmalloc(sizeof(struct hmp_domain), GFP_KERNEL);
+		cpumask_copy(&domain->possible_cpus, &hmp_slow_cpu_mask);
+		cpumask_and(&domain->cpus, cpu_online_mask, &domain->possible_cpus);
+		list_add(&domain->hmp_domains, hmp_domains_list);
+	}
+	domain = (struct hmp_domain *)
+		kmalloc(sizeof(struct hmp_domain), GFP_KERNEL);
+	cpumask_copy(&domain->possible_cpus, &hmp_fast_cpu_mask);
+	cpumask_and(&domain->cpus, cpu_online_mask, &domain->possible_cpus);
+	list_add(&domain->hmp_domains, hmp_domains_list);
+}
+#endif /* CONFIG_SCHED_HMP */
+
 
 /*
  * init_cpu_topology is called at boot when only one cpu is running
@@ -313,3 +474,167 @@ void __init init_cpu_topology(void)
 
 	parse_dt_topology();
 }
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+int cluster_id(int cpu)
+{ 
+	if((cpu >= 0) && (cpu < NR_CPUS) && (per_cpu(cmp_cpu_domain, cpu) != NULL))
+		return cmp_cpu_domain(cpu)->cluster_id;
+	else {
+#ifdef CPU_DOMAIN_BUGON
+		BUG_ON(1);
+#endif  	
+		return -1;
+	}	
+}
+int nr_cpu_of_cluster(int cluster_id, bool exclusiveOffline)
+{
+	unsigned char found = 0;
+	struct cpumask dst;
+	struct	cpu_domain *cluster;
+	struct list_head *pos;
+	
+	if(!list_empty(&cpu_domains))
+	{
+		list_for_each(pos, &cpu_domains) {
+			cluster = list_entry(pos, struct cpu_domain, cpu_domains);
+			if(cluster->cluster_id == cluster_id) //Found
+			{
+				found =1;
+				break;
+			}
+		}
+		if(!found) {
+#ifdef CPU_DOMAIN_BUGON
+			BUG_ON(1);
+#endif 				
+			return -1;
+		}
+		if(exclusiveOffline)
+			dst = cluster->cpus;
+		else
+			dst = cluster->possible_cpus;
+		return cpumask_weight(&dst);
+	}
+	else {
+#ifdef CPU_DOMAIN_BUGON
+		BUG_ON(1);
+#endif 		
+		return -1;
+	}	 
+}
+unsigned int cluster_nr(void)
+{
+	return nr_clusters;
+}
+struct cpu_domain *get_cpu_domain(int cpu)
+{
+	if(per_cpu(cmp_cpu_domain, cpu) != NULL)
+  	return cmp_cpu_domain(cpu);
+  else
+  	return NULL;
+}
+
+struct cpumask *get_domain_cpus(int cluster_id, bool exclusiveOffline)
+{
+	unsigned char found = 0;
+	struct	cpu_domain *cluster;
+	struct list_head *pos;
+	
+	if(!list_empty(&cpu_domains))
+	{
+		list_for_each(pos, &cpu_domains) {
+			cluster = list_entry(pos, struct cpu_domain, cpu_domains);
+			if(cluster->cluster_id == cluster_id) //Found
+			{
+				found =1;
+				break;
+			}
+		}
+		if(!found) {				
+			return 0;
+		}
+		if(exclusiveOffline)
+			return &cluster->cpus;
+		else
+			return &cluster->possible_cpus;
+	}
+	else {
+#ifdef CPU_DOMAIN_BUGON
+		BUG_ON(1);
+#endif 		
+		return 0;
+	}
+}
+
+void init_cpu_domain_early(void)
+{
+	unsigned int mpidr;
+	int socket_id;
+
+	mpidr = read_cpuid_mpidr();
+
+	if ((mpidr & MPIDR_SMP_BITMASK) == MPIDR_SMP_VALUE) {
+		if (mpidr & MPIDR_MT_BITMASK) {
+			socket_id = MPIDR_AFFINITY_LEVEL(mpidr, 2);
+		} else {
+			socket_id = MPIDR_AFFINITY_LEVEL(mpidr, 1);
+		}
+	} else {
+		socket_id = -1;
+	}
+	spin_lock_init (&cluster_lock);
+	if(socket_id != -1)
+		init_cpu_domains(smp_processor_id(), socket_id);
+}
+static void init_cpu_domains(int cpuid, int socket_id)
+{
+	
+	struct	cpu_domain *cluster;
+	struct list_head *pos;
+	
+	if(per_cpu(cmp_cpu_domain, cpuid) == NULL)
+	{
+		spin_lock(&cluster_lock);
+		if(list_empty(&cpu_domains))
+		{
+			cluster = (struct cpu_domain *)
+				kmalloc(sizeof(struct cpu_domain), GFP_KERNEL);
+				memset(cluster, 0, sizeof(struct cpu_domain));
+			cluster->cluster_id = socket_id;
+			list_add(&cluster->cpu_domains, &cpu_domains);
+			per_cpu(cmp_cpu_domain, cpuid) = cluster;
+			cpumask_set_cpu(cpuid, &cluster->possible_cpus);
+			cpumask_and(&cluster->cpus, cpu_online_mask, &cluster->possible_cpus);
+			nr_clusters++;				
+		}
+		else
+		{
+			list_for_each(pos, &cpu_domains) {
+				cluster = list_entry(pos, struct cpu_domain, cpu_domains);
+				if(cluster->cluster_id == socket_id)
+				{
+
+					per_cpu(cmp_cpu_domain, cpuid) = cluster;
+					cpumask_set_cpu(cpuid, &cluster->possible_cpus);
+					cpumask_and(&cluster->cpus, cpu_online_mask, &cluster->possible_cpus);
+					//printk("cpu%d cluster info is found\n", cpuid);
+			  	break;
+			  }
+			}
+			if(pos == &cpu_domains)//Not found, allocate one
+			{
+				cluster = (struct cpu_domain *)
+				kmalloc(sizeof(struct cpu_domain), GFP_KERNEL);
+				memset(cluster, 0, sizeof(struct cpu_domain));
+				cluster->cluster_id = socket_id;
+				list_add(&cluster->cpu_domains, &cpu_domains);
+				per_cpu(cmp_cpu_domain, cpuid) = cluster;
+				cpumask_set_cpu(cpuid, &cluster->possible_cpus);
+				cpumask_and(&cluster->cpus, cpu_online_mask, &cluster->possible_cpus);
+				nr_clusters++;
+			}
+		}
+		spin_unlock(&cluster_lock);
+	}	
+}
+#endif

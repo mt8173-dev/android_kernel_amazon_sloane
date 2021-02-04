@@ -25,6 +25,8 @@
 #include "u_ether.h"
 #include "rndis.h"
 
+#define RNDIS_LOG "USB_RNDIS"
+
 
 /*
  * This function is an RNDIS Ethernet port -- a Microsoft protocol that's
@@ -66,6 +68,16 @@
  *
  *   - MS-Windows drivers sometimes emit undocumented requests.
  */
+
+static unsigned int rndis_dl_max_pkt_per_xfer = 3;
+module_param(rndis_dl_max_pkt_per_xfer, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(rndis_dl_max_pkt_per_xfer,
+	"Maximum packets per transfer for DL aggregation");
+
+static unsigned int rndis_ul_max_pkt_per_xfer = 3;
+module_param(rndis_ul_max_pkt_per_xfer, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(rndis_ul_max_pkt_per_xfer,
+       "Maximum packets per transfer for UL aggregation");
 
 struct f_rndis {
 	struct gether			port;
@@ -448,6 +460,7 @@ static void rndis_command_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	struct f_rndis			*rndis = req->context;
 	int				status;
+	rndis_init_msg_type		*buf;
 
 	/* received RNDIS command from USB_CDC_SEND_ENCAPSULATED_COMMAND */
 //	spin_lock(&dev->lock);
@@ -455,6 +468,21 @@ static void rndis_command_complete(struct usb_ep *ep, struct usb_request *req)
 	if (status < 0)
 		pr_err("RNDIS command error %d, %d/%d\n",
 			status, req->actual, req->length);
+
+	buf = (rndis_init_msg_type *)req->buf;
+
+	if (buf->MessageType == RNDIS_MSG_INIT) {
+		if (buf->MaxTransferSize > 2048)
+			rndis->port.multi_pkt_xfer = 1;
+		else
+			rndis->port.multi_pkt_xfer = 0;
+		pr_info("%s: MaxTransferSize: %d : Multi_pkt_txr: %s\n",
+				__func__, buf->MaxTransferSize,
+				rndis->port.multi_pkt_xfer ? "enabled" :
+							    "disabled");
+		if (rndis_dl_max_pkt_per_xfer <= 1)
+			rndis->port.multi_pkt_xfer = 0;
+	}
 //	spin_unlock(&dev->lock);
 }
 
@@ -539,14 +567,18 @@ static int rndis_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	struct usb_composite_dev *cdev = f->config->cdev;
 
 	/* we know alt == 0 */
+	printk(RNDIS_LOG "rndis_set_alt - interface : %d, rndis ctrl id : %d, rndis data id : %d\n" ,
+	intf, rndis->ctrl_id, rndis->data_id);
 
 	if (intf == rndis->ctrl_id) {
 		if (rndis->notify->driver_data) {
 			VDBG(cdev, "reset rndis control %d\n", intf);
+			printk(RNDIS_LOG "reset rndis control %d\n", intf);
 			usb_ep_disable(rndis->notify);
 		}
 		if (!rndis->notify->desc) {
 			VDBG(cdev, "init rndis ctrl %d\n", intf);
+			printk(RNDIS_LOG "init rndis ctrl %d\n", intf);
 			if (config_ep_by_speed(cdev->gadget, f, rndis->notify))
 				goto fail;
 		}
@@ -558,11 +590,13 @@ static int rndis_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 
 		if (rndis->port.in_ep->driver_data) {
 			DBG(cdev, "reset rndis\n");
+			printk(RNDIS_LOG "reset rndis\n");
 			gether_disconnect(&rndis->port);
 		}
 
 		if (!rndis->port.in_ep->desc || !rndis->port.out_ep->desc) {
 			DBG(cdev, "init rndis\n");
+			printk(RNDIS_LOG "init rndis\n");
 			if (config_ep_by_speed(cdev->gadget, f,
 					       rndis->port.in_ep) ||
 			    config_ep_by_speed(cdev->gadget, f,
@@ -614,6 +648,7 @@ static void rndis_disable(struct usb_function *f)
 		return;
 
 	DBG(cdev, "rndis deactivated\n");
+	printk(RNDIS_LOG "rndis deactivated\n");
 
 	rndis_uninit(rndis->config);
 	gether_disconnect(&rndis->port);
@@ -637,6 +672,7 @@ static void rndis_open(struct gether *geth)
 	struct usb_composite_dev *cdev = geth->func.config->cdev;
 
 	DBG(cdev, "%s\n", __func__);
+	printk(RNDIS_LOG "%s\n", __func__);
 
 	rndis_set_param_medium(rndis->config, RNDIS_MEDIUM_802_3,
 				bitrate(cdev->gadget) / 100);
@@ -648,6 +684,7 @@ static void rndis_close(struct gether *geth)
 	struct f_rndis		*rndis = func_to_rndis(&geth->func);
 
 	DBG(geth->func.config->cdev, "%s\n", __func__);
+	printk(RNDIS_LOG "%s\n", __func__);
 
 	rndis_set_param_medium(rndis->config, RNDIS_MEDIUM_802_3, 0);
 	rndis_signal_disconnect(rndis->config);
@@ -664,6 +701,10 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 	struct f_rndis		*rndis = func_to_rndis(f);
 	int			status;
 	struct usb_ep		*ep;
+
+	printk(RNDIS_LOG \
+			"%s: rndis_bind begin \n", \
+			__func__);
 
 	/* allocate instance-specific interface IDs */
 	status = usb_interface_id(c, f);
@@ -748,6 +789,7 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 
 	rndis_set_param_medium(rndis->config, RNDIS_MEDIUM_802_3, 0);
 	rndis_set_host_mac(rndis->config, rndis->ethaddr);
+	rndis_set_max_pkt_xfer(rndis->config, rndis_ul_max_pkt_per_xfer);
 
 	if (rndis->manufacturer && rndis->vendorID &&
 			rndis_set_param_vendor(rndis->config, rndis->vendorID,
@@ -758,6 +800,13 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 	 * the network link ... which is unavailable to this code
 	 * until we're activated via set_alt().
 	 */
+
+	printk(RNDIS_LOG
+				"RNDIS: %s speed IN/%s OUT/%s NOTIFY/%s\n",
+			gadget_is_superspeed(c->cdev->gadget) ? "super" :
+			gadget_is_dualspeed(c->cdev->gadget) ? "dual" : "full",
+			rndis->port.in_ep->name, rndis->port.out_ep->name,
+			rndis->notify->name);
 
 	DBG(cdev, "RNDIS: %s speed IN/%s OUT/%s NOTIFY/%s\n",
 			gadget_is_superspeed(c->cdev->gadget) ? "super" :
@@ -792,6 +841,11 @@ rndis_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct f_rndis		*rndis = func_to_rndis(f);
 
+	printk(RNDIS_LOG \
+			"%s: rndis_unbind \n", \
+			__func__);
+
+
 	rndis_deregister(rndis->config);
 	rndis_exit();
 
@@ -821,12 +875,12 @@ rndis_bind_config_vendor(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 	if (!can_support_rndis(c) || !ethaddr)
 		return -EINVAL;
 
-	if (rndis_string_defs[0].id == 0) {
-		/* ... and setup RNDIS itself */
-		status = rndis_init();
-		if (status < 0)
-			return status;
+	/* setup RNDIS itself */
+	status = rndis_init();
+	if (status < 0)
+		return status;
 
+	if (rndis_string_defs[0].id == 0) {
 		status = usb_string_ids_tab(c->cdev, rndis_string_defs);
 		if (status)
 			return status;
@@ -854,6 +908,8 @@ rndis_bind_config_vendor(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 	rndis->port.header_len = sizeof(struct rndis_packet_msg_type);
 	rndis->port.wrap = rndis_add_header;
 	rndis->port.unwrap = rndis_rm_hdr;
+	rndis->port.ul_max_pkts_per_xfer = rndis_ul_max_pkt_per_xfer;
+	rndis->port.dl_max_pkts_per_xfer = rndis_dl_max_pkt_per_xfer;
 
 	rndis->port.func.name = "rndis";
 	rndis->port.func.strings = rndis_strings;
@@ -870,5 +926,9 @@ rndis_bind_config_vendor(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 fail:
 		rndis_exit();
 	}
+
+	printk(RNDIS_LOG \
+			"%s: rndis_bind_config_vendor done, status is %d \n", \
+			__func__, status);
 	return status;
 }

@@ -28,9 +28,11 @@ obj-$(CONFIG_INPUT_DA9055_ONKEY)	+= da9055_onkey.o
 obj-$(CONFIG_INPUT_DM355EVM)		+= dm355evm_keys.o
 obj-$(CONFIG_INPUT_GP2A)		+= gp2ap002a00f.o
 obj-$(CONFIG_INPUT_GPIO_TILT_POLLED)	+= gpio_tilt_polled.o
+obj-$(CONFIG_INPUT_GPIO)		+= gpio_event.o gpio_matrix.o gpio_input.o gpio_output.o gpio_axis.o
 obj-$(CONFIG_HP_SDC_RTC)		+= hp_sdc_rtc.o
 obj-$(CONFIG_INPUT_IMS_PCU)		+= ims-pcu.o
 obj-$(CONFIG_INPUT_IXP4XX_BEEPER)	+= ixp4xx-beeper.o
+obj-$(CONFIG_INPUT_KEYCHORD)		+= keychord.o
 obj-$(CONFIG_INPUT_KEYSPAN_REMOTE)	+= keyspan_remote.o
 obj-$(CONFIG_INPUT_KXTJ9)		+= kxtj9.o
 obj-$(CONFIG_INPUT_M68K_BEEP)		+= m68kspkr.o
@@ -60,3 +62,14 @@ obj-$(CONFIG_INPUT_WISTRON_BTNS)	+= wistron_btns.o
 obj-$(CONFIG_INPUT_WM831X_ON)		+= wm831x-on.o
 obj-$(CONFIG_INPUT_XEN_KBDDEV_FRONTEND)	+= xen-kbdfront.o
 obj-$(CONFIG_INPUT_YEALINK)		+= yealink.o
+
+#mediatek sensors drivers support
+obj-$(CONFIG_ACCELEROMETER_MTK_MC3210)	+= accelerometer/mc3210/
+obj-$(CONFIG_ALSPS_MTK_STK2203)		+= alsps/stk2203/
+obj-$(CONFIG_ALSPS_MTK_APDS9930)	+= alsps/APDS9930/
+obj-$(CONFIG_GYROSCOPE_MTK_MPU3050C)	+= gyroscope/mpu3050c/
+obj-$(CONFIG_MAGNETOMETER_MTK_AKM8963)	+= magnetometer/akm8963/
+obj-$(CONFIG_ACCELEROMETER_MTK_MPU6050)	+= accelerometer/mpu6050g/
+obj-$(CONFIG_GYROSCOPE_MTK_MPU6050)	+= gyroscope/mpu6050gy/
+obj-$(CONFIG_INPUT_HALL_BU520)		+= hall/
+obj-$(CONFIG_INPUT_TEMPERATURE_TMP103)	+= temperature/

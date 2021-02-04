@@ -12,6 +12,32 @@
 #ifndef _MMC_MMC_OPS_H
 #define _MMC_MMC_OPS_H
 
+/* Manufacturer ID, CID Register [127:120] */
+#define TOSHIBA_EMMC_MFID		0x11
+#define SANDISK_EMMC_MFID		0x45
+
+struct tsb_wear_info {
+	unsigned char sub_cmd_no;		/* sub command no. */
+	unsigned char reserved1;		/* reserved */
+	unsigned char reserved2;		/* reserved */
+	unsigned char status;			/* status */
+	unsigned int mlc_wr_max;		/* mlc write erase maximum */
+	unsigned int mlc_wr_avg;		/* slc write erase avg */
+	unsigned int slc_wr_max;		/* mlc write erase maximum */
+	unsigned int slc_wr_avg;		/* slc write erase avg */
+};
+
+struct tsb_cmd_format {
+	unsigned char sub_cmd_no;		/* sub command no. */
+	unsigned char reserved1;		/* reserved */
+	unsigned char reserved2;		/* reserved */
+	unsigned char reserved3;		/* reserved */
+	unsigned char pwd1;			/* reserved */
+	unsigned char pwd2;			/* reserved */
+	unsigned char pwd3;			/* reserved */
+	unsigned char pwd4;			/* reserved */
+};
+
 int mmc_select_card(struct mmc_card *card);
 int mmc_deselect_cards(struct mmc_host *host);
 int mmc_go_idle(struct mmc_host *host);

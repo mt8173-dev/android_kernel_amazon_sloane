@@ -195,23 +195,32 @@ static int gic_set_type(struct irq_data *d, unsigned int type)
 	u32 confoff = (gicirq / 16) * 4;
 	bool enabled = false;
 	u32 val;
+	int ret;
 
 	/* Interrupt configuration for SGIs can't be changed */
 	if (gicirq < 16)
 		return -EINVAL;
 
-	if (type != IRQ_TYPE_LEVEL_HIGH && type != IRQ_TYPE_EDGE_RISING)
-		return -EINVAL;
-
 	raw_spin_lock(&irq_controller_lock);
 
-	if (gic_arch_extn.irq_set_type)
-		gic_arch_extn.irq_set_type(d, type);
+	if (gic_arch_extn.irq_set_type) {
+		ret = gic_arch_extn.irq_set_type(d, type);
+		if (ret)
+			goto out;
+	} else if (type != IRQ_TYPE_LEVEL_HIGH &&
+		type != IRQ_TYPE_EDGE_RISING) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	val = readl_relaxed(base + GIC_DIST_CONFIG + confoff);
-	if (type == IRQ_TYPE_LEVEL_HIGH)
+	/* Check for both edge and level here, so we can support GIC irq
+	   polarity extension in gic_arch_extn.irq_set_type. If arch
+	   doesn't support polarity extension, the check above will reject
+	   improper type. */
+	if (type & IRQ_TYPE_LEVEL_MASK)
 		val &= ~confmask;
-	else if (type == IRQ_TYPE_EDGE_RISING)
+	else if (type & IRQ_TYPE_EDGE_BOTH)
 		val |= confmask;
 
 	/*
@@ -228,9 +237,10 @@ static int gic_set_type(struct irq_data *d, unsigned int type)
 	if (enabled)
 		writel_relaxed(enablemask, base + GIC_DIST_ENABLE_SET + enableoff);
 
+out:
 	raw_spin_unlock(&irq_controller_lock);
 
-	return 0;
+	return ret;
 }
 
 static int gic_retrigger(struct irq_data *d)
@@ -704,6 +714,17 @@ static int gic_irq_domain_xlate(struct irq_domain *d,
 
 	*out_type = intspec[2] & IRQ_TYPE_SENSE_MASK;
 	return 0;
+}
+
+void gic_register_sgi(unsigned int gic_nr, int irq)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+	if (desc)
+		desc->irq_data.hwirq = irq;
+	irq_set_chip_and_handler(irq, &gic_chip,
+				 handle_fasteoi_irq);
+	set_irq_flags(irq, IRQF_VALID | IRQF_PROBE);
+	irq_set_chip_data(irq, &gic_data[gic_nr]);
 }
 
 #ifdef CONFIG_SMP

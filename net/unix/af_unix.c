@@ -114,6 +114,25 @@
 #include <linux/mount.h>
 #include <net/checksum.h>
 #include <linux/security.h>
+#include <linux/freezer.h>
+
+//#ifndef CONFIG_UNIX_SOCKET_TRACK_TOOL
+//#define CONFIG_UNIX_SOCKET_TRACK_TOOL
+//#endif
+
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+#include <linux/file.h>
+#include <linux/seq_file.h>
+#include <linux/spinlock.h>
+#include <linux/jiffies.h>
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+#include <linux/uio.h>
+#include <linux/blkdev.h>
+#include <linux/compat.h>
+#include <linux/rtc.h>
+#include <asm/kmap_types.h>
+#include <linux/device.h>
+
 
 struct hlist_head unix_socket_table[2 * UNIX_HASH_SIZE];
 EXPORT_SYMBOL_GPL(unix_socket_table);
@@ -133,6 +152,999 @@ static struct hlist_head *unix_sockets_unbound(void *addr)
 }
 
 #define UNIX_ABSTRACT(sk)	(unix_sk(sk)->addr->hash < UNIX_HASH_SIZE)
+
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+//unix_sock_track_blc结构 description:
+
+typedef struct unix_sock_track_blc_st
+{
+    struct unix_sock_track_blc_st     *next;    /* point to next unix_sock_track_blc_st */
+    //char            record_time_s[20];        /* string like '04-26 15:32:17.850' */
+                                                /* record 0 position time.  recode_wrap_around == 1, 
+                                                great current position time: 
+                                                current position time - __UNIX_SOCKET_INFO_SIZE__*__UNIX_SOCKET_INFO_SIZE__ */
+    //unsigned int    time_yy;                  /* year */
+    //unsigned int    time_mon;                 /* mon */
+    //unsigned int    time_day;                 /* day */
+    //unsigned int    time_hour;                /* hour */
+    //unsigned int    time_min;                 /* min */
+    unsigned int    time_sc;                  /* socket create sec */
+    unsigned int    time_ms;                  /* socket create msec */   
+    //unsigned long record_time_ms;           /* ms value. first recod infor used time */
+    unsigned int    recode_wrap_around;       /* record bytes used out */
+    unsigned int    record_current_p;         /* current recod infor position */
+    unsigned long   record_current_sc;        /* tick value. first recod infor used time */   
+    unsigned long   record_current_ms;        /* tick value. first recod infor used time */
+    //unsigned int    socket_type;              /* socket type */
+    //unsigned int    block;                    /* 0: block, 1: non-block*/
+    //unsigned int    wait_timer;               /* block socket wait time, default value MAX_SCHEDULE_TIMEOUT */
+    unsigned int    nod_ino;                  /* self kernel socket identify */       
+    unsigned int    listen;                   /* socket listen or not. 0: not listen, value>0: backlog number */
+    unsigned long   listen_time_sc;           /* do listen action time(se) */
+    unsigned long   listen_time_ms;           /* do listen action time(ms) */
+    unsigned int    peer_ino;                 /* peer kernel socket identify */
+    unsigned int    create_fd;                /* fd value when socket create at create thread */
+    unsigned int    used_fd;                  /* fd value when socket used at use thread */
+    //char            create_thread_name[16];   /* create socket tread name */
+    //char            use_thread_name[16];      /* use socket thread name */
+    unsigned int    create_pid;               /* create task pid */
+    unsigned int    create_tid;               /* create task tid */
+    unsigned int    used_pid;                 /* used task pid */
+    unsigned int    used_tid;                 /* used task tid */
+    char            unix_address[16];         /* unix socket address, not auto bind.
+                                               unix_address[0] == 0, not bind
+                                               unix_address[0] != 0, app call bind
+                                              */
+    unsigned int    send_buffer_size_max;     /* max send buffer size */
+    unsigned int    send_buffer_size_min;     /* min send buffer size */
+    unsigned int    recv_buffer_size_max;     /* max recv buffer size */
+    unsigned int    recv_buffer_size_min;     /* min recv buffer size */
+    unsigned int    recv_queue_len;           /* max recv queue packet number */
+    unsigned int    recv_count;               /* recv count */
+    unsigned int    send_count;               /* send count */
+    unsigned int    send_data_total;          /* total send data number */
+    unsigned int    recv_data_total;          /* total recv data number */
+    unsigned int    shutdown_state;           /* shutdown state.  */
+    int             error_flag;               /* action error. this error could not recover */
+    unsigned long   close_time_sc;            /* socket close time(se  value) */
+    unsigned long   close_time_ms;            /* socket close time(ms value) */
+    unsigned char   *record_info_blc;         /* point to record infor address */
+}unix_sock_track_blc;
+
+
+//////////update 'record infor description' begin///////////////// 
+typedef struct unix_sock_track_header_st
+{
+    unsigned char		*list_head;
+    spinlock_t 			list_lock;
+    unsigned long		rm_close_sock_time;
+}unix_sock_track_header;
+//record infor的记录单元是 byte.
+
+#define SK_RW   0x01  //socket do read action 
+#define SK_RD   0x02  //socket read finish 
+#define SK_RO   0x03  //socket read 0 size 
+
+#define SK_READ_MASK  0x03
+
+#define SK_WW   0x04  //socket do write action 
+#define SK_WD   0x08  //socket write finish 
+#define SK_WE   0x0C  //socket write error ----- not include retry 
+
+#define SK_WRITE_MASK 0x0c
+
+#define SK_PW   0x10  //socket do poll action 
+#define SK_PF   0x20  //socket poll finish 
+#define SK_PT   0x30  //socket poll there is event to handle 
+
+#define SK_POLL_MASK  0x30
+
+#define SK_AW   0x40  //socket do accept or connect action 
+#define SK_AF   0x80  //socket accept or connect fail
+#define SK_AT   0xc0  //socket accept or connect ok 
+
+#define SK_ACCEPT_MASK  0xc0
+
+//////////update 'record infor description' end/////////////////  
+
+
+//#define __UNIX_SOCKET_RM_SOKCET_TIME__    1000*10
+#define __UNIX_SOCKET_RM_SOKCET_TIME__    60  // seconds
+
+#define __UNIX_SOCKET_INFO_SIZE__     3*1024
+#define __UNIX_SOCKET_TIME_UNIT__     200
+
+static spinlock_t unix_dbg_info_lock;
+static unix_sock_track_blc *unix_sock_blc_head = NULL;
+static unix_sock_track_blc *unix_sock_blc_out_head = NULL;
+static int unix_sock_blc_out_index = -1;
+#define USTK_HASH_LEN		6
+#define USTK_HASH_SIZE	((1 << USTK_HASH_LEN) + 1)//64
+
+static int unix_socket_info_lock_init = 0;
+static unsigned long  unix_socket_rm_close_sock_blc_time = 0; 
+//record last clear time value
+
+static unix_sock_track_header	unix_sock_track_head[USTK_HASH_SIZE] = {0};
+
+static unix_sock_track_blc* unix_sock_track_find_blc_with_action(unsigned int action, unix_sock_track_blc* tmp, unsigned long ino);
+
+#endif /* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+
+//for aee interface start
+#define __UNIX_SOCKET_OUTPUT_BUF_SIZE__   3500
+#define UNIX_SOCK_TRACK_AEE_PROCNAME "driver/usktrk_aee"
+#define UNIX_SOCK_TRACK_PROC_AEE_SIZE 3072
+
+static volatile unsigned int unix_sock_track_stop_flag = 0;
+
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+static unsigned int g_buf_len = 0;
+static unsigned char *pBuf = NULL;
+static unsigned int passCnt = 1;
+static unsigned int unix_socket_test_stop = 0;
+static unsigned char unix_sock_track_out_buf[__UNIX_SOCKET_OUTPUT_BUF_SIZE__] = {1};
+
+static void unix_sock_track_dump_socket_info(void)
+{
+    unsigned char *tmp = 0;
+    unsigned long flags;
+
+    printk("[usktrk] stop socket record, start output infor \n");       
+    g_buf_len = 0;
+  
+    if (unix_sock_track_stop_flag == 0)
+    {
+        //unix_sock_track_stop_flag = 1; 
+    }
+    printk("[usktrk] dump_socket_info unix_sock_track_stop_flag=%d\n", unix_sock_track_stop_flag);  
+
+    memset(unix_sock_track_out_buf, 0, __UNIX_SOCKET_OUTPUT_BUF_SIZE__);
+
+unix_sock_track_dump_next_list:    
+	
+    if (unix_sock_blc_out_head == NULL)
+    {
+        unix_sock_blc_out_index++;
+            
+        if (unix_sock_blc_out_index >= USTK_HASH_SIZE)
+        {
+            return;
+        }
+    }
+
+    spin_lock_irqsave(&(unix_sock_track_head[unix_sock_blc_out_index].list_lock), flags);  
+    
+    if (unix_sock_blc_out_head == NULL)
+    {
+        if ((unix_sock_track_blc*)(unix_sock_track_head[unix_sock_blc_out_index].list_head != NULL))
+        {
+            unix_sock_blc_out_head = (unix_sock_track_blc*)(unix_sock_track_head[unix_sock_blc_out_index].list_head);
+        }
+        else
+        {
+            spin_unlock_irqrestore(&(unix_sock_track_head[unix_sock_blc_out_index].list_lock), flags); 
+            goto unix_sock_track_dump_next_list;
+        }
+    }
+
+    //unix_sock_track_stop_flag = 2;
+     
+    while(unix_sock_blc_out_head != NULL)
+    {
+        if (unix_sock_blc_out_head->record_info_blc != NULL)
+        {
+            tmp = unix_sock_blc_out_head->record_info_blc;
+            if (g_buf_len == 0)
+            {
+                memcpy(unix_sock_track_out_buf, unix_sock_blc_out_head, sizeof(unix_sock_track_blc));
+                g_buf_len = g_buf_len + sizeof(unix_sock_track_blc);
+                memcpy(unix_sock_track_out_buf + g_buf_len, tmp, __UNIX_SOCKET_INFO_SIZE__);
+                g_buf_len = g_buf_len + __UNIX_SOCKET_INFO_SIZE__;
+                unix_sock_blc_out_head = unix_sock_blc_out_head->next;
+            }
+            //printk("[usktrk] unix_sock_track_dump_socket_info g_buf_len=%d\n", g_buf_len);
+            break;
+        }
+        else
+        {
+            //printk("[usktrk] unix_sock_track_dump_socket_info1 g_buf_len=%d\n", g_buf_len);
+            if ((g_buf_len + sizeof(unix_sock_track_blc)) >= __UNIX_SOCKET_INFO_SIZE__)
+            {
+                break;
+            }
+      
+            memcpy(unix_sock_track_out_buf + g_buf_len, unix_sock_blc_out_head, sizeof(unix_sock_track_blc));
+            g_buf_len = g_buf_len + sizeof(unix_sock_track_blc);    
+            unix_sock_blc_out_head = unix_sock_blc_out_head->next;        
+        }
+        
+        if (unix_sock_blc_out_head == NULL)
+        {
+            spin_unlock_irqrestore(&(unix_sock_track_head[unix_sock_blc_out_index].list_lock), flags); 
+            goto unix_sock_track_dump_next_list;
+        }    
+
+    }
+    
+    spin_unlock_irqrestore(&(unix_sock_track_head[unix_sock_blc_out_index].list_lock), flags); 
+    printk("[usktrk] unix_sock_track_dump_socket_info1 g_buf_len=%d\n", g_buf_len);
+}
+
+static int unix_sock_track_dev_proc_for_aee_read(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+    unix_sock_track_blc* outcheck_tmp = NULL;
+    unsigned int len = 0;
+    printk("[usktrk] for aee page(%p)off(%d)count(%d)\n", page, off, count);
+    
+    unix_sock_track_dump_socket_info();
+    
+    printk("[usktrk] unix_sock_track_dev_proc_for_aee_read g_buf_len=%d\n", g_buf_len);
+    if (g_buf_len > 0)
+    {
+        memcpy(page, unix_sock_track_out_buf, g_buf_len);
+        *start += g_buf_len;
+        *eof = 1;
+        passCnt--;
+        return g_buf_len;
+    }
+    else
+    {
+        unix_sock_blc_out_index = -1;
+        unix_sock_blc_out_head = NULL;
+        return 0;
+    }
+    
+#if 0    // 0626 test ok
+    if (passCnt > 0)
+    {
+        g_buf_len = __UNIX_SOCKET_OUTPUT_BUF_SIZE__;
+        memcpy(page, unix_sock_track_out_buf, g_buf_len);
+        *start += g_buf_len;
+        *eof = 1;
+        passCnt--;
+        return g_buf_len;
+    }
+    else
+        return 0;
+#endif
+}
+
+#endif /*CONFIG_UNIX_SOCKET_TRACK_TOOL*/
+#if 0
+static struct proc_dir_entry *gunix_socket_track_aee_entry;
+
+static int unix_sock_track_dev_proc_for_aee_read(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+    return 0;
+}
+
+static int unix_sock_track_dev_proc_for_aee_write(struct file *file, const char *buffer, unsigned long count, void *data)
+{
+    return 0;
+}
+
+int unix_sock_track_dev_proc_for_aee_setup(void)
+{
+    gunix_socket_track_aee_entry= create_proc_entry(UNIX_SOCK_TRACK_AEE_PROCNAME, 0664, NULL);
+    if(gunix_socket_track_aee_entry == NULL)
+    {
+        printk("[usktrk] Unable to create / usktrk_aee proc entry\n\r");
+        return -1;
+    }
+    gunix_socket_track_aee_entry->read_proc = unix_sock_track_dev_proc_for_aee_read;
+    gunix_socket_track_aee_entry->write_proc = unix_sock_track_dev_proc_for_aee_write;
+    return 0;
+}
+
+int unix_sock_track_dev_proc_for_aee_remove(void)
+{
+    if (NULL != gunix_socket_track_aee_entry)
+    {
+        remove_proc_entry(UNIX_SOCK_TRACK_AEE_PROCNAME, NULL);
+    }
+    return 0;
+}
+
+static int unix_sock_track_open(struct inode *inode, struct file *file)
+{
+    printk("[usktrk] unix_sock_track_open\n");
+    return 0;
+}
+
+static int unix_sock_track_close(struct inode *inode, struct file *file)
+{
+    printk("[usktrk] unix_sock_track\n");
+
+    return 0;
+}
+
+#define USKTRK_DRIVER_NAME "mtk_stp_usktrk"
+#define MTK_USKTRK_VERSION  "SOC Consys unix socket Driver - v1.0"
+#define MTK_USKTRK_DATE     "2013/01/20"
+//#define USKTRK_DEV_MAJOR 191 
+#define USKTRK_DEV_MAJOR 141 
+#define USKTRK_DEV_NUM 1
+
+/* Linux UCHAR device */
+static int gusktrkMajor = USKTRK_DEV_MAJOR;
+static struct cdev gusktrkCdev;
+
+ssize_t (*read) (struct file *, char __user *, size_t, loff_t *);
+ssize_t (*write) (struct file *, const char __user *, size_t, loff_t *);
+long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
+
+struct file_operations gusktrkfops = {
+    .open = unix_sock_track_open,
+    .release = unix_sock_track_close,
+    .read = NULL,
+    .write = NULL,
+//    .ioctl = WMT_ioctl,
+    .unlocked_ioctl = NULL,
+    .poll = NULL,
+};
+
+static int unix_sock_track_init(void)
+{
+    dev_t devID = MKDEV(gusktrkMajor, 0);
+    int cdevErr = -1;
+    int ret = -1;
+    printk("[usktrk] Version= %s DATE=%s\n", MTK_USKTRK_VERSION, MTK_USKTRK_DATE);
+    /* Prepare a UCHAR device */
+    /*static allocate chrdev*/
+
+    ret = register_chrdev_region(devID, USKTRK_DEV_NUM, USKTRK_DRIVER_NAME);
+    if (ret) 
+    {
+        printk("[usktrk] fail to register chrdev\n");
+        return ret;
+    }
+
+    cdev_init(&gusktrkCdev, &gusktrkfops);
+    gusktrkCdev.owner = THIS_MODULE;
+
+    cdevErr = cdev_add(&gusktrkCdev, devID, USKTRK_DEV_NUM);
+    if (cdevErr) 
+    {
+        printk("[usktrk] cdev_add() fails (%d)\n", cdevErr);
+        goto error;
+    }
+    printk("[usktrk] driver(major %d) installed \n", gusktrkMajor);
+
+    unix_sock_track_dev_proc_for_aee_setup();
+
+    printk("[usktrk] dev register success \n");
+    return 0;
+
+error:
+
+    printk("[usktrk] dev register fail \n");
+
+    return -1;
+}
+
+static void unix_sock_track_exit (void)
+{
+    dev_t dev = MKDEV(gusktrkMajor, 0);
+  
+    unix_sock_track_dev_proc_for_aee_remove();
+
+    cdev_del(&gusktrkCdev);
+    unregister_chrdev_region(dev, USKTRK_DEV_NUM);
+    gusktrkMajor = -1;
+
+    printk("[usktrk] exit done\n");
+}
+
+module_init(unix_sock_track_init);
+module_exit(unix_sock_track_exit);
+//MODULE_LICENSE("Proprietary");
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("MediaTek Inc unix socket tool");
+MODULE_DESCRIPTION("MTK unix socket tool function");
+
+module_param(gusktrkMajor, uint, 0);
+#endif
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+//doing    1: read
+//doing    2: write
+//doing    3: poll
+//doing    4: accept
+
+void unix_test_time_log(struct socket *sock, int doing)
+{
+#if 0	
+    struct timeval tv = {0}; //tv_0 = {0}
+    char  name[200] = {0};
+    struct rtc_time tm;
+    unsigned int inod = 0;
+
+    //if ((strstr(current->comm, "zygote") != NULL)/* ||
+    //(strstr(current->comm, "UI") != NULL)*/)
+    //if ((strstr(current->comm, "adbd") != NULL))
+    //if ((strstr(current->comm, "UI") != NULL))
+
+    if ((strstr(current->comm, "init") != NULL))
+    {
+        do_gettimeofday(&tv);
+        tv.tv_sec -= sys_tz.tz_minuteswest*60;
+        rtc_time_to_tm(tv.tv_sec, &tm);
+
+        if (SOCK_INODE(sock))
+        {
+             inod = SOCK_INODE(sock)->i_ino;
+        }
+      
+        memset(name, 0, sizeof(name));
+        sprintf(name, "[usktrk], nod= %u time:%02d-%02d-%02d:%lu, tv_sec=%u",
+        inod, tm.tm_hour, tm.tm_min, tm.tm_sec, tv.tv_usec, tv.tv_sec);    
+
+        if (doing == 1)
+        {
+            printk("[usktrk] %s:  do read\n", name);
+        }
+    
+        if (doing == 2)
+        {
+            printk("[usktrk] %s:  do write\n", name);
+        }
+
+        if (doing == 3)
+        {
+            printk("[usktrk] %s:  do poll\n", name);
+        } 
+
+        if (doing == 4)
+        {
+            printk("[usktrk] %s:  do accept\n", name);
+        }
+    }
+#endif
+    return;
+}
+
+
+static void unix_sock_track_rm_close_sock(unsigned long ino)
+{
+    if (unix_sock_track_stop_flag == 0)
+    {
+        unix_sock_track_find_blc_with_action(3, NULL, ino);
+    }
+}
+
+static unix_sock_track_blc* unix_sock_track_find_blc_with_action(unsigned int action, unix_sock_track_blc* tmp, unsigned long ino)
+{
+    unix_sock_track_blc *head_t = NULL;
+    unsigned long flags;
+    unsigned int	hash_value = 0;
+    //action==1, add node 
+    //action==2, find nod_ino==ino node
+    //action==3, free time over node
+    //action==4, output sokcet infor 
+
+    if (unix_sock_track_stop_flag == 0)
+    {
+  
+        if (action == 1)
+        {
+            unsigned char *list_head_t = 0;
+            
+            hash_value = ino - ((ino >> USTK_HASH_LEN) << USTK_HASH_LEN);
+            //printk("[usktrk] with_action 1 hash_value =%u\n", hash_value);
+            spin_lock_irqsave(&(unix_sock_track_head[hash_value].list_lock), flags);
+            if (unix_sock_track_head[hash_value].list_head == NULL)
+            {
+                unix_sock_track_head[hash_value].list_head = (unsigned char*)tmp;
+                printk("[usktrk]action unix_sock_blc_head=NULL \n");     
+            }
+            else
+            {
+                head_t = (unix_sock_track_blc*)unix_sock_track_head[hash_value].list_head;
+                
+                while(head_t->next != NULL)
+                {
+                    head_t = head_t->next;
+                    if (unix_sock_track_stop_flag != 0)
+                    {
+                        break;
+                    }
+                }
+        
+                head_t->next = tmp;           
+            }
+            
+            spin_unlock_irqrestore(&(unix_sock_track_head[hash_value].list_lock), flags); 
+        }
+        else if (action == 2)
+        {
+            hash_value = ino - ((ino >> USTK_HASH_LEN) << USTK_HASH_LEN);
+            //printk("[usktrk] with_action 2 hash_value =%u\n", hash_value);
+            spin_lock_irqsave(&(unix_sock_track_head[hash_value].list_lock), flags);
+            head_t = (unix_sock_track_blc*)unix_sock_track_head[hash_value].list_head;
+            while(head_t != NULL)
+            {
+                if ((head_t->nod_ino == ino) && (head_t->record_info_blc != NULL))
+                {
+                    break;
+                }
+                
+                if (unix_sock_track_stop_flag != 0)
+                {
+                    break;
+                }
+                                    
+                head_t = head_t->next;
+            }
+            spin_unlock_irqrestore(&(unix_sock_track_head[hash_value].list_lock), flags); 
+        }
+        else if (action == 3)
+        {
+            unix_sock_track_blc *tmp1 = NULL;
+            unix_sock_track_blc *tmp_prev = NULL;
+            unsigned long current_time_ms_t = 0;
+            unsigned long rm_close_base_ms_t = 0;
+            unsigned long long t;
+            unsigned long nanosec_rem;    
+            struct timeval tv = {0};
+
+            do_gettimeofday(&tv);
+
+            tv.tv_sec -= sys_tz.tz_minuteswest*60;
+            current_time_ms_t = tv.tv_sec;
+               
+            hash_value = ino - ((ino >> USTK_HASH_LEN) << USTK_HASH_LEN);
+            
+            spin_lock_irqsave(&(unix_sock_track_head[hash_value].list_lock), flags);
+            rm_close_base_ms_t = unix_sock_track_head[hash_value].rm_close_sock_time;
+            
+            if (unix_sock_track_head[hash_value].list_head == NULL)
+            {
+                goto rm_node_end;
+            }
+            
+            if (unix_sock_track_head[hash_value].rm_close_sock_time == 0)
+            {
+                unix_sock_track_head[hash_value].rm_close_sock_time = current_time_ms_t;
+                goto rm_node_end;
+            }
+            else
+            {
+                if (current_time_ms_t - rm_close_base_ms_t <  __UNIX_SOCKET_RM_SOKCET_TIME__)
+                {
+                    goto rm_node_end;
+                }
+      
+  rm_node_update_header:      
+                if (unix_sock_track_head[hash_value].list_head == NULL)
+                {
+                    head_t = NULL;
+                    goto rm_node_end;
+                }
+           
+                tmp_prev = (unix_sock_track_blc*)unix_sock_track_head[hash_value].list_head;
+                head_t = tmp_prev;          
+          
+  rm_node_check:        
+                if (head_t != NULL) 
+                {
+                    tmp1 = NULL;
+                                  
+                    if ((head_t->close_time_ms != 0) && (head_t->record_info_blc == NULL))
+                    {
+                        //printk("[usktrk] action close_time_ms:%lu\n", head_t->close_time_ms); 
+                        if (((current_time_ms_t > head_t->close_time_ms) && 
+                           ((current_time_ms_t - head_t->close_time_ms) >= __UNIX_SOCKET_RM_SOKCET_TIME__)) ||
+                           ((current_time_ms_t < head_t->close_time_ms) && 
+                           (current_time_ms_t >= __UNIX_SOCKET_RM_SOKCET_TIME__)))
+                        {
+                            tmp1 = head_t;
+                            //printk("[usktrk] action tmp1 = 0x%x\n", tmp1);  
+                        }
+                    }         
+            
+                    if (unix_sock_track_stop_flag != 0)
+                    {
+                        goto rm_node_end;
+                    }
+                
+                    if (tmp1 != NULL)
+                    {
+                        //printk("[usktrk] 1 socket close[%lu] \n", tmp1->nod_ino);      
+                        //printk("[usktrk] 1 recv coun:%u, send count:%u \n", tmp1->recv_count, tmp1->send_count);   
+                        //printk("[usktrk] 1 send data total:%u, recv data tatal:%u \n", tmp1->send_data_total, tmp1->recv_data_total);                 
+              
+                        if (((unsigned char*)tmp1) == unix_sock_track_head[hash_value].list_head)
+                        {                 
+                            unix_sock_track_head[hash_value].list_head = (unsigned char*)(tmp1->next);
+                            //printk("[usktrk] 3 free tmp1 \n");
+                            kfree(tmp1);                    
+                            goto rm_node_update_header;
+                        } 
+                
+                    }       
+        
+                    if (tmp_prev != head_t)
+                    {
+                        if (tmp1 != NULL)
+                        {
+                            tmp_prev->next = tmp1->next;
+                            //printk("[usktrk] 4 free tmp1 \n");
+                            kfree(tmp1);                  
+                        } 
+                        else
+                        {             
+                            tmp_prev = tmp_prev->next;
+                        }
+                
+                        if (tmp_prev == NULL)
+                        {
+                            //printk("[usktrk] 5 last nod \n");
+                            head_t = NULL;
+                            goto rm_node_end;
+                        }
+                    }
+            
+                    head_t = tmp_prev->next;
+                
+                    if (unix_sock_track_stop_flag != 0)
+                    {
+                        goto rm_node_end;
+                    }                
+            
+                    goto rm_node_check;
+                        
+                }
+
+                head_t = NULL;
+                goto rm_node_end;
+            
+rm_node_end:      
+                spin_unlock_irqrestore(&(unix_sock_track_head[hash_value].list_lock), flags);        
+            }
+
+        }
+    }
+        
+    return head_t;
+}
+
+unix_sock_track_blc* unix_sock_track_socket_create1(unsigned long ino, unsigned int socket_type)
+{
+
+    unix_sock_track_blc *unix_sock_blc_t = NULL;
+    unix_sock_track_blc *head_t = NULL;
+    char  *sock_infor = NULL;
+    unsigned long flags;
+    unsigned long current_time_se = 0;
+    unsigned long time_se = 0;
+    unsigned long time_ms = 0;
+    int temp_len = 0;
+    unsigned long long t;
+    unsigned long nanosec_rem;  
+    struct timeval tv = {0};
+
+    //printk("[usktrk] create1 unix_sock_track_stop_flag=%d, unix_socket_info_lock_init=%d\n", unix_sock_track_stop_flag, unix_socket_info_lock_init);   
+    if (unix_sock_track_stop_flag == 0)
+    {
+        if (unix_socket_info_lock_init == 0)
+        {
+            int i = 0;
+            
+            for(i = 0; i < USTK_HASH_SIZE; i++)
+            {
+                unix_sock_track_head[i].list_head = NULL;
+                spin_lock_init(&unix_sock_track_head[i].list_lock);
+                unix_sock_track_head[i].rm_close_sock_time = 0;
+            }
+            //spin_lock_init(&unix_dbg_info_lock);
+            unix_socket_info_lock_init = 1; 
+        }
+      
+        do_gettimeofday(&tv);
+
+        tv.tv_sec -= sys_tz.tz_minuteswest*60;
+        time_se = tv.tv_sec;
+        time_ms = (unsigned long)((tv.tv_usec) / 1000);
+
+        //printk("[usktrk] create1 time_ms =%u\n", time_ms);
+
+        current_time_se = time_se;
+
+        sock_infor = kzalloc(__UNIX_SOCKET_INFO_SIZE__, GFP_ATOMIC);
+    
+        //printk("[usktrk] create1 ion=%d\n", ino);   
+        if (sock_infor != NULL)
+        {
+            temp_len = sizeof(unix_sock_track_blc);
+            //unix_sock_blc_t = kzalloc(temp_len, GFP_KERNEL);
+            unix_sock_blc_t = kzalloc(temp_len, GFP_ATOMIC);
+             
+            if (unix_sock_blc_t != NULL)
+            {
+                unix_sock_blc_t->record_info_blc = sock_infor;          
+                unix_sock_track_find_blc_with_action(1, unix_sock_blc_t, ino);        
+                unix_sock_blc_t->create_fd = socket_type;
+                unix_sock_blc_t->nod_ino = ino;
+
+                unix_sock_blc_t->create_pid = current->tgid;
+                unix_sock_blc_t->create_tid = current->pid;
+                unix_sock_blc_t->record_current_p = 0;    
+                unix_sock_blc_t->record_current_sc = time_se;   
+                unix_sock_blc_t->record_current_ms = (time_ms / __UNIX_SOCKET_TIME_UNIT__) * __UNIX_SOCKET_TIME_UNIT__;;    
+                unix_sock_blc_t->time_sc = time_se;
+                unix_sock_blc_t->time_ms = time_ms;
+            }
+            else
+            {
+                printk("[usktrk] alloc unix_sock_blc fail\n");
+
+                kfree(sock_infor);
+            }              
+        }
+        else
+        {
+            printk("[usktrk]alloc sock_infor fail\n");
+        }
+    }
+  
+    return unix_sock_blc_t;
+    
+}
+
+   
+void unix_sock_track_socket_create(unsigned long ino, unsigned int socket_type)
+{
+
+    unix_sock_track_blc *tmp = NULL;
+
+    tmp = unix_sock_track_socket_create1(ino, socket_type);
+    if (tmp == NULL)
+    {
+        printk("[usktrk] unix_sock_track_socket_create1 error\n");
+    }
+    
+}
+
+void unix_sock_track_socket_accept_create(unsigned long ino, unsigned int socket_type, struct socket *sock)
+{
+
+    unix_sock_track_blc *tmp = NULL;
+    struct sock *sk = NULL;
+    struct sock *sk_p = NULL;
+
+    tmp = unix_sock_track_socket_create1(ino, socket_type);
+    if (tmp == NULL)
+    {
+        printk("[usktrk] create1 error\n");
+    }    
+}
+
+static void unix_socket_track_socket_pino(unix_sock_track_blc *blc, struct sock *sk)
+{
+    struct sock *peer_sk = NULL;
+    unsigned long peer_ino = 0;
+    
+    if (blc != NULL)
+    {
+        peer_sk = unix_peer(sk);
+        if (peer_sk != NULL)
+        {
+            if(peer_sk != NULL && peer_sk->sk_socket && SOCK_INODE(peer_sk->sk_socket))
+            {
+                peer_ino = SOCK_INODE(peer_sk->sk_socket)->i_ino;
+            
+                if (blc->peer_ino != peer_ino)
+                {
+                    if (blc->peer_ino != 0)
+                    {
+                        printk("[usktrk] prev=%ul, now=%ul\n", blc->peer_ino, peer_ino);
+                    }
+                    blc->peer_ino = peer_ino;
+                }
+            }
+        }
+    }
+}
+
+void unix_sock_track_socket_pair_create(unsigned long ino, unsigned int socket_type, unsigned long ino1, unsigned int socket_type1)
+{
+
+    unix_sock_track_blc *tmp = NULL;
+    unix_sock_track_blc *tmp1 = NULL;
+ 
+    tmp = unix_sock_track_socket_create1(ino, socket_type);
+    if (tmp == NULL)
+    {
+        printk("[usktrk] create error\n");
+    }
+    else
+        tmp->peer_ino = ino1;
+
+    tmp1 = unix_sock_track_socket_create1(ino1, socket_type1);
+    if (tmp1 == NULL)
+    {
+        printk("[usktrk] create1 error\n");
+    }
+    else
+          tmp1->peer_ino = ino;   
+ 
+}
+
+
+static unix_sock_track_blc *blc_check = NULL;
+static void unix_sock_track_fill_action(unix_sock_track_blc *blc, unsigned int action, unsigned int action_mask)
+{
+    unsigned long time_ms = 0;
+    unsigned long time_se = 0;
+    unsigned long time_offset = 0;
+    unsigned long time_offset_se = 0;
+    unsigned long time_offset_ms = 0;
+    unsigned int  offset_byte = 0;
+    char  *record_info_t = NULL;
+    unsigned int  record_current_p_t = 0;
+    unsigned int  recode_start_p_t = 0;
+    unsigned int  recode_start_p_diff = 0;
+    unsigned int  i = 0;
+    unsigned int  time_wrap_around = 0;
+    unsigned int  post_wrap_around = 0;
+    unsigned int  update_time_info = 0;
+    unsigned long flags;
+    unsigned long long t;
+    unsigned long nanosec_rem;     
+    struct timeval tv = {0};
+    
+    if (unix_sock_track_stop_flag == 0)
+    {
+        do_gettimeofday(&tv);
+
+        tv.tv_sec -= sys_tz.tz_minuteswest*60;
+        time_se = tv.tv_sec;
+        time_ms = (unsigned long)((tv.tv_usec) / 1000);
+
+        record_info_t = blc->record_info_blc;
+
+        //if (blc_check == NULL)
+        {
+            blc_check = blc;
+        }
+
+        if (record_info_t != NULL)
+        {
+        
+            if ((blc->record_current_ms == 0) && (blc->record_current_sc == 0))
+            {
+                printk("[usktrk], nod=%u, error happen\n", blc->nod_ino);
+
+            }
+            else
+            {
+        
+                // get time offset
+                if (time_se < blc->record_current_sc)
+                {
+                    time_offset_se = ((unsigned long)(-1)) - blc->record_current_sc + time_se;
+                }
+                else
+                {
+                    time_offset_se = time_se - blc->record_current_sc;
+                }
+
+                if (time_offset_se > 0)
+                {
+                    if (time_ms < blc->record_current_ms)
+                    {
+                        time_offset_se = time_offset_se - 1;
+
+                        time_offset_ms = time_ms + 1000 - blc->record_current_ms;
+                    }
+                    else
+                    {
+                        time_offset_ms = time_ms - blc->record_current_ms;
+                    }
+                }
+                else
+                {
+                    if (time_ms < blc->record_current_ms)
+                    {
+                        printk("[usktrk] time error happen \n");
+                        return;
+                    }
+                    else
+                    {
+                        time_offset_ms = time_ms - blc->record_current_ms;
+                    }
+                }
+
+                time_offset = time_offset_se * 1000 + time_offset_ms;
+        
+                if (time_offset >= __UNIX_SOCKET_TIME_UNIT__ * __UNIX_SOCKET_INFO_SIZE__)
+                {   
+                    if((blc->record_info_blc == NULL) || (blc->close_time_sc != 0))
+                    {
+                        return;
+                    }
+                    //printk("[usktrk] nod=%u time> max save \n", blc->nod_ino);
+                    memset(record_info_t, 0, sizeof(__UNIX_SOCKET_INFO_SIZE__));    
+                    //blc->recode_wrap_around = 1;   
+                    update_time_info = 1;    
+                    blc->record_current_p = 0;     
+                    blc->record_current_sc = time_se;  
+                    blc->record_current_ms = (time_ms / __UNIX_SOCKET_TIME_UNIT__) * __UNIX_SOCKET_TIME_UNIT__;  
+
+                }
+                else if (time_offset >= __UNIX_SOCKET_TIME_UNIT__)
+                {
+                    //get bytes offset
+                    offset_byte = time_offset / __UNIX_SOCKET_TIME_UNIT__;
+
+                    {  
+                        unsigned int tmp = blc->record_current_p;
+                
+                        for(i = 1; i <= offset_byte; i++)
+                        {
+                            tmp++;
+                            //record_info_t[tmp] = 0;
+                            blc->record_current_ms = blc->record_current_ms + __UNIX_SOCKET_TIME_UNIT__;
+                            if ( blc->record_current_ms >= 1000)
+                            {
+                                blc->record_current_sc = blc->record_current_sc + 1;
+                                blc->record_current_ms = blc->record_current_ms - 1000;
+                            }
+                            if (tmp >= __UNIX_SOCKET_INFO_SIZE__)
+                            {
+                                //printk("[usktrk] nod=%u new pos> max save \n", blc->nod_ino);
+                                tmp = 0;
+                                blc->recode_wrap_around = 1;
+                                update_time_info = 1;                       
+                            }
+                            
+				                    if((blc->record_info_blc == NULL) || (blc->close_time_sc != 0))
+				                    {
+				                        return;
+				                    }                               
+                            record_info_t[tmp] = 0;
+                        }
+                
+                        blc->record_current_p = tmp;
+                    }       
+                }
+            }
+
+            if (current->tgid != blc->create_pid)
+            {
+                if (blc->used_pid != current->tgid)
+                {
+                    if((blc->record_info_blc != NULL) && (blc->close_time_sc == 0))
+                    {
+                        blc->used_pid = current->tgid;
+                    }
+                }
+                
+            }   
+
+            if (current->pid != blc->create_tid)
+            {
+                if (blc->used_tid != current->pid)
+                {
+                    if((blc->record_info_blc != NULL) && (blc->close_time_sc == 0))
+                    {
+                        blc->used_tid = current->pid;
+                    }
+                } 
+            }
+            
+            if((blc->record_info_blc == NULL) || (blc->close_time_sc != 0))
+            {
+                return;
+            }        
+            record_info_t[blc->record_current_p] = record_info_t[blc->record_current_p] & (~action_mask);
+            record_info_t[blc->record_current_p] = record_info_t[blc->record_current_p] | action;   
+            //printk("[usktrk]new record_current_p=%u record_info_t=0x%x\n", blc->record_current_p, record_info_t[blc->record_current_p]);    
+        }    
+    }
+}
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+
 
 #ifdef CONFIG_SECURITY_NETWORK
 static void unix_get_secdata(struct scm_cookie *scm, struct sk_buff *skb)
@@ -313,9 +1325,122 @@ found:
 	return s;
 }
 
-static inline int unix_writable(struct sock *sk)
+/* Support code for asymmetrically connected dgram sockets
+ *
+ * If a datagram socket is connected to a socket not itself connected
+ * to the first socket (eg, /dev/log), clients may only enqueue more
+ * messages if the present receive queue of the server socket is not
+ * "too large". This means there's a second writeability condition
+ * poll and sendmsg need to test. The dgram recv code will do a wake
+ * up on the peer_wait wait queue of a socket upon reception of a
+ * datagram which needs to be propagated to sleeping would-be writers
+ * since these might not have sent anything so far. This can't be
+ * accomplished via poll_wait because the lifetime of the server
+ * socket might be less than that of its clients if these break their
+ * association with it or if the server socket is closed while clients
+ * are still connected to it and there's no way to inform "a polling
+ * implementation" that it should let go of a certain wait queue
+ *
+ * In order to propagate a wake up, a wait_queue_t of the client
+ * socket is enqueued on the peer_wait queue of the server socket
+ * whose wake function does a wake_up on the ordinary client socket
+ * wait queue. This connection is established whenever a write (or
+ * poll for write) hit the flow control condition and broken when the
+ * association to the server socket is dissolved or after a wake up
+ * was relayed.
+ */
+
+static int unix_dgram_peer_wake_relay(wait_queue_t *q, unsigned mode, int flags,
+				      void *key)
+{
+	struct unix_sock *u;
+	wait_queue_head_t *u_sleep;
+
+	u = container_of(q, struct unix_sock, peer_wake);
+
+	__remove_wait_queue(&unix_sk(u->peer_wake.private)->peer_wait,
+			    q);
+	u->peer_wake.private = NULL;
+
+	/* relaying can only happen while the wq still exists */
+	u_sleep = sk_sleep(&u->sk);
+	if (u_sleep)
+		wake_up_interruptible_poll(u_sleep, key);
+
+	return 0;
+}
+
+static int unix_dgram_peer_wake_connect(struct sock *sk, struct sock *other)
+{
+	struct unix_sock *u, *u_other;
+	int rc;
+
+	u = unix_sk(sk);
+	u_other = unix_sk(other);
+	rc = 0;
+	spin_lock(&u_other->peer_wait.lock);
+
+	if (!u->peer_wake.private) {
+		u->peer_wake.private = other;
+		__add_wait_queue(&u_other->peer_wait, &u->peer_wake);
+
+		rc = 1;
+	}
+
+	spin_unlock(&u_other->peer_wait.lock);
+	return rc;
+}
+
+static void unix_dgram_peer_wake_disconnect(struct sock *sk,
+					    struct sock *other)
+{
+	struct unix_sock *u, *u_other;
+
+	u = unix_sk(sk);
+	u_other = unix_sk(other);
+	spin_lock(&u_other->peer_wait.lock);
+
+	if (u->peer_wake.private == other) {
+		__remove_wait_queue(&u_other->peer_wait, &u->peer_wake);
+		u->peer_wake.private = NULL;
+	}
+
+	spin_unlock(&u_other->peer_wait.lock);
+}
+
+static void unix_dgram_peer_wake_disconnect_wakeup(struct sock *sk,
+						   struct sock *other)
+{
+	unix_dgram_peer_wake_disconnect(sk, other);
+	wake_up_interruptible_poll(sk_sleep(sk),
+				   POLLOUT |
+				   POLLWRNORM |
+				   POLLWRBAND);
+}
+
+/* preconditions:
+ *	- unix_peer(sk) == other
+ *	- association is stable
+ */
+static int unix_dgram_peer_wake_me(struct sock *sk, struct sock *other)
+{
+	int connected;
+
+	connected = unix_dgram_peer_wake_connect(sk, other);
+
+	if (unix_recvq_full(other))
+		return 1;
+
+	if (connected)
+		unix_dgram_peer_wake_disconnect(sk, other);
+
+	return 0;
+}
+
+static int unix_writable(const struct sock *sk)
 {
 	return (atomic_read(&sk->sk_wmem_alloc) << 2) <= sk->sk_sndbuf;
+
 }
 
 static void unix_write_space(struct sock *sk)
@@ -417,6 +1542,8 @@ static void unix_release_sock(struct sock *sk, int embrion)
 			skpair->sk_state_change(skpair);
 			sk_wake_async(skpair, SOCK_WAKE_WAITD, POLL_HUP);
 		}
+
+		unix_dgram_peer_wake_disconnect(sk, skpair);
 		sock_put(skpair); /* It may now die */
 		unix_peer(sk) = NULL;
 	}
@@ -476,6 +1603,12 @@ static int unix_listen(struct socket *sock, int backlog)
 	struct sock *sk = sock->sk;
 	struct unix_sock *u = unix_sk(sk);
 	struct pid *old_pid = NULL;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    struct timeval tv = {0};
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	err = -EOPNOTSUPP;
 	if (sock->type != SOCK_STREAM && sock->type != SOCK_SEQPACKET)
@@ -498,6 +1631,44 @@ out_unlock:
 	unix_state_unlock(sk);
 	put_pid(old_pid);
 out:
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////  
+    //unix_sock_track_tmp = unix_sock_track_get_blc_by_ino(SOCK_INODE(sock)->i_ino);
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }
+    //unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        if (err == 0)
+        {
+            unsigned long long t;
+            unsigned long nanosec_rem;        
+
+            //get current time ms
+            do_gettimeofday(&tv);
+
+            tv.tv_sec -= sys_tz.tz_minuteswest*60;  
+      
+            if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+            {
+                unix_sock_track_tmp->listen = backlog;
+                unix_sock_track_tmp->listen_time_sc = tv.tv_sec;
+                unix_sock_track_tmp->listen_time_ms = (unsigned long)((tv.tv_usec) / 1000);
+            }
+        }
+        else
+        {
+        	  if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+        	  {
+                unix_sock_track_tmp->error_flag = err;
+            }
+        }
+    }
+    //////////////add code end///////////////////    
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */     
 	return err;
 }
 
@@ -650,6 +1821,7 @@ static struct sock *unix_create1(struct net *net, struct socket *sock)
 	INIT_LIST_HEAD(&u->link);
 	mutex_init(&u->readlock); /* single task reading lock */
 	init_waitqueue_head(&u->peer_wait);
+	init_waitqueue_func_entry(&u->peer_wake, unix_dgram_peer_wake_relay);
 	unix_insert_socket(unix_sockets_unbound(sk), sk);
 out:
 	if (sk == NULL)
@@ -696,10 +1868,51 @@ static int unix_create(struct net *net, struct socket *sock, int protocol,
 static int unix_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end///////////////////   
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	if (!sk)
 		return 0;
 
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+    //////////////add code begin///////////////////  
+    printk("[usktrk] socket close[%lu] \n", SOCK_INODE(sock)->i_ino); 
+
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unsigned long long t;
+        unsigned long nanosec_rem;  
+        struct timeval tv = {0};
+
+        do_gettimeofday(&tv);
+
+        tv.tv_sec -= sys_tz.tz_minuteswest*60;
+        unix_sock_track_tmp->close_time_sc = tv.tv_sec;
+        unix_sock_track_tmp->close_time_ms = (unsigned long)((tv.tv_usec) / 1000);
+
+        unix_sock_track_tmp->shutdown_state = SHUTDOWN_MASK;
+        if (unix_sock_track_tmp->record_info_blc != NULL)
+        {
+        	  unsigned char   *tmp1 = NULL;
+        	  tmp1 = unix_sock_track_tmp->record_info_blc;
+        	  unix_sock_track_tmp->record_info_blc = NULL;
+            kfree(tmp1);
+        }
+        //printk("[usktrk] 1 socket close[%lu] \n",unix_sock_track_tmp->nod_ino); 
+        
+        unix_sock_track_rm_close_sock(SOCK_INODE(sock)->i_ino);
+    }
+
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 	unix_release_sock(sk, 0);
 	sock->sk = NULL;
 
@@ -862,7 +2075,11 @@ static int unix_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	unsigned int hash;
 	struct unix_address *addr;
 	struct hlist_head *list;
-
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 	err = -EINVAL;
 	if (sunaddr->sun_family != AF_UNIX)
 		goto out;
@@ -897,6 +2114,33 @@ static int unix_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 
 	if (sun_path[0]) {
 		struct path path;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+        //////////////add code begin///////////////////  
+
+        if (SOCK_INODE(sock))
+        {
+            unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+        }        
+
+        if (unix_sock_track_tmp != NULL)
+        {
+            if (addr->len > 15)
+            {
+                char *tt;
+
+                tt = sun_path + (addr->len - 15);
+                memcpy(unix_sock_track_tmp->unix_address, tt, 15);
+                unix_sock_track_tmp->unix_address[15] = 0;
+            }
+            else
+            {
+                memcpy(unix_sock_track_tmp->unix_address, sun_path, addr->len);
+                unix_sock_track_tmp->unix_address[addr->len] = 0;
+            }  
+        }  
+        //////////////add code end///////////////////     
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */        
+
 		umode_t mode = S_IFSOCK |
 		       (SOCK_INODE(sock)->i_mode & ~current_umask());
 		err = unix_mknod(sun_path, mode, &path);
@@ -933,6 +2177,25 @@ out_unlock:
 out_up:
 	mutex_unlock(&u->readlock);
 out:
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+    //////////////add code begin///////////////////  
+    if (err < 0)
+    {
+        if (err != -EAGAIN)
+        {
+            if (unix_sock_track_tmp != NULL)
+            {
+                // record this error. this error could not recover.  
+                if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+                {
+                    unix_sock_track_tmp->error_flag = err;
+                }
+            }
+        }
+    }
+
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */   
 	return err;
 }
 
@@ -970,8 +2233,27 @@ static int unix_dgram_connect(struct socket *sock, struct sockaddr *addr,
 	struct sock *other;
 	unsigned int hash;
 	int err;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	if (addr->sa_family != AF_UNSPEC) {
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL		
+    //////////////add code begin///////////////////  
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }
+         
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AW, SK_ACCEPT_MASK);
+    }
+    //////////////add code end///////////////////  
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+     
 		err = unix_mkname(sunaddr, alen, &hash);
 		if (err < 0)
 			goto out;
@@ -1017,6 +2299,8 @@ restart:
 	if (unix_peer(sk)) {
 		struct sock *old_peer = unix_peer(sk);
 		unix_peer(sk) = other;
+		unix_dgram_peer_wake_disconnect_wakeup(sk, old_peer);
+
 		unix_state_double_unlock(sk, other);
 
 		if (other != old_peer)
@@ -1026,12 +2310,40 @@ restart:
 		unix_peer(sk) = other;
 		unix_state_double_unlock(sk, other);
 	}
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////  
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AT, SK_ACCEPT_MASK);
+    }
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+            
 	return 0;
 
 out_unlock:
 	unix_state_double_unlock(sk, other);
 	sock_put(other);
 out:
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////  
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AT, SK_ACCEPT_MASK);
+
+        if (err != EAGAIN)
+        {
+            // record this error. this error could not recover.
+            if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+            {  
+                unix_sock_track_tmp->error_flag = err;
+            }
+        }      
+    }  
+
+    //////////////add code end///////////////////    
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+     
 	return err;
 }
 
@@ -1070,6 +2382,24 @@ static int unix_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 	int st;
 	int err;
 	long timeo;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end///////////////////
+
+    //////////////add code begin///////////////////  
+
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }    
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AW, SK_ACCEPT_MASK);
+    }
+    //////////////add code end///////////////////  
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	err = unix_mkname(sunaddr, addr_len, &hash);
 	if (err < 0)
@@ -1216,6 +2546,15 @@ restart:
 	unix_state_unlock(other);
 	other->sk_data_ready(other, 0);
 	sock_put(other);
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL  
+    //////////////add code begin///////////////////  
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AT, SK_ACCEPT_MASK);
+    }
+    //////////////add code end///////////////////  
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+       
 	return 0;
 
 out_unlock:
@@ -1228,6 +2567,25 @@ out:
 		unix_release_sock(newsk, 0);
 	if (other)
 		sock_put(other);
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL		
+    //////////////add code begin///////////////////  
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AF, SK_ACCEPT_MASK);
+
+        if (err != EAGAIN)
+        {
+            // record this error. this error could not recover.  
+            if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+            {
+                unix_sock_track_tmp->error_flag = err;
+            }
+        }
+        //////////////add code end///////////////////         
+    }  
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+    
 	return err;
 }
 
@@ -1267,6 +2625,11 @@ static int unix_accept(struct socket *sock, struct socket *newsock, int flags)
 	struct sock *tsk;
 	struct sk_buff *skb;
 	int err;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	err = -EOPNOTSUPP;
 	if (sock->type != SOCK_STREAM && sock->type != SOCK_SEQPACKET)
@@ -1280,6 +2643,20 @@ static int unix_accept(struct socket *sock, struct socket *newsock, int flags)
 	 * so that no locks are necessary.
 	 */
 
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL  
+    //////////////add code begin///////////////////  
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }    
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AW, SK_ACCEPT_MASK);
+    }
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+    
 	skb = skb_recv_datagram(sk, 0, flags&O_NONBLOCK, &err);
 	if (!skb) {
 		/* This means receive shutdown. */
@@ -1298,9 +2675,27 @@ static int unix_accept(struct socket *sock, struct socket *newsock, int flags)
 	unix_sock_inherit_flags(sock, newsock);
 	sock_graft(tsk, newsock);
 	unix_state_unlock(tsk);
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////    
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AT, SK_ACCEPT_MASK);
+    }
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+    
 	return 0;
 
 out:
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////    
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_AF, SK_ACCEPT_MASK);
+    }
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+    
 	return err;
 }
 
@@ -1456,9 +2851,29 @@ static int unix_dgram_sendmsg(struct kiocb *kiocb, struct socket *sock,
 	struct scm_cookie tmp_scm;
 	int max_level;
 	int data_len = 0;
+	int sk_locked;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end/////////////////// 
 
+//    unix_test_time_log(sock, 2);
+    //////////////add code begin///////////////////  
+    if (SOCK_INODE(sock))
+    {
+         unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }    
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_socket_track_socket_pino(unix_sock_track_tmp, sk);
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_WW, SK_WRITE_MASK);
+    }
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */  
 	if (NULL == siocb->scm)
 		siocb->scm = &tmp_scm;
+
 	wait_for_unix_gc();
 	err = scm_send(sock, msg, siocb->scm, false);
 	if (err < 0)
@@ -1532,12 +2947,14 @@ restart:
 		goto out_free;
 	}
 
+	sk_locked = 0;
 	unix_state_lock(other);
+restart_locked:
 	err = -EPERM;
 	if (!unix_may_send(sk, other))
 		goto out_unlock;
 
-	if (sock_flag(other, SOCK_DEAD)) {
+	if (unlikely(sock_flag(other, SOCK_DEAD))) {
 		/*
 		 *	Check with 1003.1g - what should
 		 *	datagram error
@@ -1545,10 +2962,14 @@ restart:
 		unix_state_unlock(other);
 		sock_put(other);
 
+		if (!sk_locked)
+			unix_state_lock(sk);
+
 		err = 0;
-		unix_state_lock(sk);
 		if (unix_peer(sk) == other) {
 			unix_peer(sk) = NULL;
+			unix_dgram_peer_wake_disconnect_wakeup(sk, other);
+
 			unix_state_unlock(sk);
 
 			unix_dgram_disconnected(sk, other);
@@ -1574,20 +2995,42 @@ restart:
 			goto out_unlock;
 	}
 
-	if (unix_peer(other) != sk && unix_recvq_full(other)) {
-		if (!timeo) {
+	/* other == sk && unix_peer(other) != sk if
+	 * - unix_peer(sk) == NULL, destination address bound to sk
+	 * - unix_peer(sk) == sk by time of get but disconnected before lock
+	 */
+	if (other != sk &&
+	    unlikely(unix_peer(other) != sk && unix_recvq_full(other))) {
+		if (timeo) {
+			timeo = unix_wait_for_peer(other, timeo);
+
+			err = sock_intr_errno(timeo);
+			if (signal_pending(current))
+				goto out_free;
+
+			goto restart;
+		}
+
+		if (!sk_locked) {
+			unix_state_unlock(other);
+			unix_state_double_lock(sk, other);
+		}
+
+		if (unix_peer(sk) != other ||
+		    unix_dgram_peer_wake_me(sk, other)) {
 			err = -EAGAIN;
+			sk_locked = 1;
 			goto out_unlock;
 		}
 
-		timeo = unix_wait_for_peer(other, timeo);
-
-		err = sock_intr_errno(timeo);
-		if (signal_pending(current))
-			goto out_free;
-
-		goto restart;
+		if (!sk_locked) {
+			sk_locked = 1;
+			goto restart_locked;
+		}
 	}
+
+	if (unlikely(sk_locked))
+		unix_state_unlock(sk);
 
 	if (sock_flag(other, SOCK_RCVTSTAMP))
 		__net_timestamp(skb);
@@ -1599,9 +3042,29 @@ restart:
 	other->sk_data_ready(other, len);
 	sock_put(other);
 	scm_destroy(siocb->scm);
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////  
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_WD, SK_WRITE_MASK);
+
+        // record this send data len.  
+        if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+        {
+            unix_sock_track_tmp->send_data_total += len;
+            unix_sock_track_tmp->send_count ++;    
+        }           
+    }  
+
+    //////////////add code end///////////////////     
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+    
 	return len;
 
 out_unlock:
+	if (sk_locked)
+		unix_state_unlock(sk);
 	unix_state_unlock(other);
 out_free:
 	kfree_skb(skb);
@@ -1609,6 +3072,26 @@ out:
 	if (other)
 		sock_put(other);
 	scm_destroy(siocb->scm);
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////  
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_WE, SK_WRITE_MASK);
+
+        if (err != EAGAIN)
+        {
+            // record this error. this error could not recover.  
+            if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+            {
+                unix_sock_track_tmp->error_flag = err;
+            }
+        }
+    }  
+
+    //////////////add code end///////////////////   
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+      
 	return err;
 }
 
@@ -1625,6 +3108,25 @@ static int unix_stream_sendmsg(struct kiocb *kiocb, struct socket *sock,
 	struct scm_cookie tmp_scm;
 	bool fds_sent = false;
 	int max_level;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end/////////////////// 
+
+//    unix_test_time_log(sock, 2);
+    //////////////add code begin///////////////////  
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }
+  
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_socket_track_socket_pino(unix_sock_track_tmp, sk);
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_WW, SK_WRITE_MASK);
+    }
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	if (NULL == siocb->scm)
 		siocb->scm = &tmp_scm;
@@ -1704,7 +3206,10 @@ static int unix_stream_sendmsg(struct kiocb *kiocb, struct socket *sock,
 
 		if (sock_flag(other, SOCK_DEAD) ||
 		    (other->sk_shutdown & RCV_SHUTDOWN))
+		{
+			pr_debug("sockdbg: sendmsg:peer close\n");
 			goto pipe_err_free;
+		}
 
 		maybe_add_creds(skb, sock, other);
 		skb_queue_tail(&other->sk_receive_queue, skb);
@@ -1717,6 +3222,23 @@ static int unix_stream_sendmsg(struct kiocb *kiocb, struct socket *sock,
 
 	scm_destroy(siocb->scm);
 	siocb->scm = NULL;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////  
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_WD, SK_WRITE_MASK);
+
+        // record this send data len.  
+        if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+        {        
+            unix_sock_track_tmp->send_data_total += len;
+            unix_sock_track_tmp->send_count ++;   
+        }
+    }  
+
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	return sent;
 
@@ -1730,6 +3252,26 @@ pipe_err:
 out_err:
 	scm_destroy(siocb->scm);
 	siocb->scm = NULL;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////  
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_WE, SK_WRITE_MASK);
+
+        if (err != EAGAIN)
+        {
+            // record this error. this error could not recover.  
+            if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+            {
+                unix_sock_track_tmp->error_flag = err;
+            }
+        }   
+    }  
+
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+        
 	return sent ? : err;
 }
 
@@ -1786,6 +3328,30 @@ static int unix_dgram_recvmsg(struct kiocb *iocb, struct socket *sock,
 	struct sk_buff *skb;
 	int err;
 	int peeked, skip;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end/////////////////// 
+
+//    unix_test_time_log(sock, 1);
+    //////////////add code begin///////////////////  
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }    
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_socket_track_socket_pino(unix_sock_track_tmp, sk);
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_RW, SK_READ_MASK);
+        if (sk->sk_receive_queue.qlen > unix_sock_track_tmp->recv_queue_len)
+        {
+            unix_sock_track_tmp->recv_queue_len = sk->sk_receive_queue.qlen;
+        }
+
+    }
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	err = -EOPNOTSUPP;
 	if (flags&MSG_OOB)
@@ -1871,6 +3437,46 @@ out_free:
 out_unlock:
 	mutex_unlock(&u->readlock);
 out:
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+    //////////////add code begin///////////////////  
+
+    //printk("[usktrk] unix_dgram_recvmsg err=%d \n", err);
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_RD, SK_READ_MASK);
+
+        if (err < 0)
+        {
+            if (err != -EAGAIN)
+            {
+                // record this error. this error could not recover.  
+                if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+                {
+                    unix_sock_track_tmp->error_flag = err;
+                }
+            }
+        }
+        else
+        {
+            // record this send data len.  
+            if (!(flags & MSG_PEEK))
+            {
+            		if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+            		{
+                    unix_sock_track_tmp->recv_data_total += err;  
+                    unix_sock_track_tmp->recv_count ++;
+                }
+            }       
+      
+            if (err == 0)
+            {
+                unix_sock_track_fill_action(unix_sock_track_tmp, SK_RO, SK_READ_MASK);    
+            }
+        }
+    }
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+      
 	return err;
 }
 
@@ -1896,7 +3502,7 @@ static long unix_stream_data_wait(struct sock *sk, long timeo,
 
 		set_bit(SOCK_ASYNC_WAITDATA, &sk->sk_socket->flags);
 		unix_state_unlock(sk);
-		timeo = schedule_timeout(timeo);
+		timeo = freezable_schedule_timeout(timeo);
 		unix_state_lock(sk);
 		clear_bit(SOCK_ASYNC_WAITDATA, &sk->sk_socket->flags);
 	}
@@ -1922,6 +3528,31 @@ static int unix_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 	int err = 0;
 	long timeo;
 	int skip;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end///////////////////   
+
+//    unix_test_time_log(sock, 1);
+
+    //////////////add code begin///////////////////  
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }    
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_socket_track_socket_pino(unix_sock_track_tmp, sk);
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_RW, SK_READ_MASK);
+    
+        if (sk->sk_receive_queue.qlen > unix_sock_track_tmp->recv_queue_len)
+        {
+            unix_sock_track_tmp->recv_queue_len = sk->sk_receive_queue.qlen;
+        }   
+    }
+    //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	err = -EINVAL;
 	if (sk->sk_state != TCP_ESTABLISHED)
@@ -1972,8 +3603,10 @@ again:
 			if (err)
 				goto unlock;
 			if (sk->sk_shutdown & RCV_SHUTDOWN)
+			{
+				pr_debug("sockdbg: recvmsg: exit read due to peer shutdown\n");
 				goto unlock;
-
+			}
 			unix_state_unlock(sk);
 			err = -EAGAIN;
 			if (!timeo)
@@ -1981,6 +3614,8 @@ again:
 			mutex_unlock(&u->readlock);
 
 			timeo = unix_stream_data_wait(sk, timeo, last);
+			if (!timeo)
+				pr_debug("sockdbg: recvmsg:exit read due to timeout\n");
 
 			if (signal_pending(current)
 			    ||  mutex_lock_interruptible(&u->readlock)) {
@@ -2064,6 +3699,51 @@ again:
 	mutex_unlock(&u->readlock);
 	scm_recv(sock, msg, siocb->scm, flags);
 out:
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL  
+    //////////////add code begin///////////////////  
+
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_RD, SK_READ_MASK);
+
+        if (err < 0)
+        {
+            if (err != -EAGAIN)
+            {
+                // record this error. this error could not recover.  
+                if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+                {
+                    unix_sock_track_tmp->error_flag = err;
+                }
+            }
+        }
+        else
+        {
+            // record this send data len.  
+            if (!(flags & MSG_PEEK))
+            {
+                if (copied > 0)
+                {
+                    if((unix_sock_track_tmp->record_info_blc != NULL) && (unix_sock_track_tmp->close_time_sc == 0))
+                    {
+                        unix_sock_track_tmp->recv_data_total += copied;  
+                        unix_sock_track_tmp->recv_count ++;
+                    }
+                }
+            }
+
+            //printk("[usktrk] unix_stream_recvmsg recv_data_total =%u\n", unix_sock_track_tmp->recv_data_total); 
+
+            if ((copied == 0) && (err == 0))
+            {
+                unix_sock_track_fill_action(unix_sock_track_tmp, SK_RO, SK_READ_MASK);
+            }
+
+        }
+    }
+    //////////////add code end///////////////////     
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+  
 	return copied ? : err;
 }
 
@@ -2172,6 +3852,24 @@ static unsigned int unix_poll(struct file *file, struct socket *sock, poll_table
 {
 	struct sock *sk = sock->sk;
 	unsigned int mask;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end///////////////////
+  
+    //unix_test_time_log(sock, 3);
+    //////////////add code begin///////////////////  
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }
+  
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_PW, SK_POLL_MASK);
+    }
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	sock_poll_wait(file, sk_sleep(sk), wait);
 	mask = 0;
@@ -2199,6 +3897,22 @@ static unsigned int unix_poll(struct file *file, struct socket *sock, poll_table
 	 */
 	if (unix_writable(sk))
 		mask |= POLLOUT | POLLWRNORM | POLLWRBAND;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL
+    //////////////add code begin///////////////////    
+    if (unix_sock_track_tmp != NULL)
+    {
+        if (mask & (POLLIN | POLLERR | POLLHUP))
+        {
+            unix_sock_track_fill_action(unix_sock_track_tmp, SK_PT, SK_POLL_MASK);      
+        }
+        else
+        {
+            unix_sock_track_fill_action(unix_sock_track_tmp, SK_PF, SK_POLL_MASK);
+        }
+    }
+   
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */  
 
 	return mask;
 }
@@ -2208,6 +3922,25 @@ static unsigned int unix_dgram_poll(struct file *file, struct socket *sock,
 {
 	struct sock *sk = sock->sk, *other;
 	unsigned int mask, writable;
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL	
+    //////////////add code begin///////////////////
+    unix_sock_track_blc* unix_sock_track_tmp = NULL;
+    //////////////add code end///////////////////
+
+    //unix_test_time_log(sock, 3);
+    //////////////add code begin///////////////////  
+
+    if (SOCK_INODE(sock))
+    {
+        unix_sock_track_tmp = unix_sock_track_find_blc_with_action(2, NULL, SOCK_INODE(sock)->i_ino);
+    }
+  
+    if (unix_sock_track_tmp != NULL)
+    {
+        unix_sock_track_fill_action(unix_sock_track_tmp, SK_PW, SK_POLL_MASK);
+    }
+    //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	sock_poll_wait(file, sk_sleep(sk), wait);
 	mask = 0;
@@ -2232,28 +3965,84 @@ static unsigned int unix_dgram_poll(struct file *file, struct socket *sock,
 			mask |= POLLHUP;
 		/* connection hasn't started yet? */
 		if (sk->sk_state == TCP_SYN_SENT)
+    {
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL    	
+        //////////////add code begin///////////////////    
+        if (unix_sock_track_tmp != NULL)
+        {
+            if (mask != 0)
+            {
+                unix_sock_track_fill_action(unix_sock_track_tmp, SK_PT, SK_POLL_MASK);      
+            }
+            else
+            {
+                unix_sock_track_fill_action(unix_sock_track_tmp, SK_PF, SK_POLL_MASK);
+            }
+        }
+       
+        //////////////add code end///////////////////   
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+        
 			return mask;
 	}
+  }
 
 	/* No write status requested, avoid expensive OUT tests. */
 	if (!(poll_requested_events(wait) & (POLLWRBAND|POLLWRNORM|POLLOUT)))
+  {
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL  	
+      //////////////add code begin///////////////////    
+      if (unix_sock_track_tmp != NULL)
+      {
+          if (mask != 0)
+          {
+              unix_sock_track_fill_action(unix_sock_track_tmp, SK_PT, SK_POLL_MASK);      
+          }
+          else
+          {
+              unix_sock_track_fill_action(unix_sock_track_tmp, SK_PF, SK_POLL_MASK);
+          }
+      }
+     
+      //////////////add code end/////////////////// 
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
+        
 		return mask;
+  }
 
 	writable = unix_writable(sk);
-	other = unix_peer_get(sk);
-	if (other) {
-		if (unix_peer(other) != sk) {
-			sock_poll_wait(file, &unix_sk(other)->peer_wait, wait);
-			if (unix_recvq_full(other))
-				writable = 0;
-		}
-		sock_put(other);
+	if (writable) {
+		unix_state_lock(sk);
+
+		other = unix_peer(sk);
+		if (other && unix_peer(other) != sk &&
+		    unix_recvq_full(other) &&
+		    unix_dgram_peer_wake_me(sk, other))
+			writable = 0;
+
+		unix_state_unlock(sk);
 	}
 
 	if (writable)
 		mask |= POLLOUT | POLLWRNORM | POLLWRBAND;
 	else
 		set_bit(SOCK_ASYNC_NOSPACE, &sk->sk_socket->flags);
+#ifdef CONFIG_UNIX_SOCKET_TRACK_TOOL		
+    //////////////add code begin///////////////////    
+    if (unix_sock_track_tmp != NULL)
+    {
+        if (mask & (POLLIN | POLLERR | POLLHUP))
+        {
+            unix_sock_track_fill_action(unix_sock_track_tmp, SK_PT, SK_POLL_MASK);      
+        }
+        else
+        {
+            unix_sock_track_fill_action(unix_sock_track_tmp, SK_PF, SK_POLL_MASK);
+        }
+   }
+
+   //////////////add code end///////////////////
+#endif/* CONFIG_UNIX_SOCKET_TRACK_TOOL */
 
 	return mask;
 }

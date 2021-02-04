@@ -2106,6 +2106,43 @@ out_free_group_list:
 	return retval;
 }
 
+static int cgroup_allow_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
+{
+	struct cgroup_subsys *ss;
+	int ret;
+
+	for_each_subsys(cgrp->root, ss) {
+		if (ss->allow_attach) {
+			ret = ss->allow_attach(cgrp, tset);
+			if (ret)
+				return ret;
+		} else {
+			return -EACCES;
+		}
+	}
+
+	return 0;
+}
+
+int subsys_cgroup_allow_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
+{
+	const struct cred *cred = current_cred(), *tcred;
+	struct task_struct *task;
+
+	if (capable(CAP_SYS_NICE))
+		return 0;
+
+	cgroup_taskset_for_each(task, cgrp, tset) {
+		tcred = __task_cred(task);
+
+		if (current != task && cred->euid != tcred->uid &&
+		    cred->euid != tcred->suid)
+			return -EACCES;
+	}
+
+	return 0;
+}
+
 /*
  * Find the task_struct of the task to attach by vpid and pass it along to the
  * function to attach either it or all tasks in its threadgroup. Will lock
@@ -2137,9 +2174,18 @@ retry_find_task:
 		if (!uid_eq(cred->euid, GLOBAL_ROOT_UID) &&
 		    !uid_eq(cred->euid, tcred->uid) &&
 		    !uid_eq(cred->euid, tcred->suid)) {
-			rcu_read_unlock();
-			ret = -EACCES;
-			goto out_unlock_cgroup;
+			/*
+			 * if the default permission check fails, give each
+			 * cgroup a chance to extend the permission check
+			 */
+			struct cgroup_taskset tset = { };
+			tset.single.task = tsk;
+			tset.single.cgrp = cgrp;
+			ret = cgroup_allow_attach(cgrp, &tset);
+			if (ret) {
+				rcu_read_unlock();
+				goto out_unlock_cgroup;
+			}
 		}
 	} else
 		tsk = current;
@@ -3740,6 +3786,39 @@ static int cgroup_write_notify_on_release(struct cgroup *cgrp,
 		clear_bit(CGRP_NOTIFY_ON_RELEASE, &cgrp->flags);
 	return 0;
 }
+
+#ifdef CONFIG_PERFSTATS_PERTASK_PERFREQ
+void cgroup_load_tasks(struct cgroup *cgrp, struct cgroup_tasklist *ct)
+{
+	struct cgroup_pidlist *l;
+	int i;
+	int retval, length;
+
+	/* have the array populated */
+	retval = pidlist_array_load(cgrp, CGROUP_FILE_TASKS, &l);
+	if (retval)
+		goto error;
+
+	down_read(&l->mutex);
+	length = l->length;
+	ct->list = vmalloc(length * sizeof(pid_t));
+	if (!ct->list)
+		goto error;
+
+	for (i = 0; i < length; i++) {
+		if (l->list[i])
+			ct->list[i] = l->list[i];
+	}
+	up_read(&l->mutex);
+
+	ct->length = l->length;
+	ct->use_count = l->use_count;
+
+error:
+	if (l)
+		cgroup_release_pid_array(l);
+}
+#endif
 
 /*
  * When dput() is called asynchronously, if umount has been done and

@@ -84,6 +84,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/task.h>
 
+#ifdef CONFIG_MT_PRIO_TRACER
+# include <linux/prio_tracer.h>
+#endif
+
 /*
  * Protected counters by write_lock_irq(&tasklist_lock)
  */
@@ -198,6 +202,9 @@ struct kmem_cache *vm_area_cachep;
 /* SLAB cache for mm_struct structures (tsk->mm) */
 static struct kmem_cache *mm_cachep;
 
+/* Notifier list called when a task struct is freed */
+static ATOMIC_NOTIFIER_HEAD(task_free_notifier);
+
 static void account_kernel_stack(struct thread_info *ti, int account)
 {
 	struct zone *zone = page_zone(virt_to_page(ti));
@@ -231,6 +238,18 @@ static inline void put_signal_struct(struct signal_struct *sig)
 		free_signal_struct(sig);
 }
 
+int task_free_register(struct notifier_block *n)
+{
+	return atomic_notifier_chain_register(&task_free_notifier, n);
+}
+EXPORT_SYMBOL(task_free_register);
+
+int task_free_unregister(struct notifier_block *n)
+{
+	return atomic_notifier_chain_unregister(&task_free_notifier, n);
+}
+EXPORT_SYMBOL(task_free_unregister);
+
 void __put_task_struct(struct task_struct *tsk)
 {
 	WARN_ON(!tsk->exit_state);
@@ -242,6 +261,7 @@ void __put_task_struct(struct task_struct *tsk)
 	delayacct_tsk_free(tsk);
 	put_signal_struct(tsk->signal);
 
+	atomic_notifier_call_chain(&task_free_notifier, 0, tsk);
 	if (!profile_handoff_task(tsk))
 		free_task(tsk);
 }
@@ -311,6 +331,15 @@ static struct task_struct *dup_task_struct(struct task_struct *orig)
 		goto free_ti;
 
 	tsk->stack = ti;
+#ifdef CONFIG_SECCOMP
+	/*
+	 * We must handle setting up seccomp filters once we're under
+	 * the sighand lock in case orig has changed between now and
+	 * then. Until then, filter must be NULL to avoid messing up
+	 * the usage counts on the error path calling free_task.
+	 */
+	tsk->seccomp.filter = NULL;
+#endif
 
 	setup_thread_stack(tsk, orig);
 	clear_user_return_notifier(tsk);
@@ -544,6 +573,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p)
 	mm->cached_hole_size = ~0UL;
 	mm_init_aio(mm);
 	mm_init_owner(mm, p);
+	RCU_INIT_POINTER(mm->exe_file, NULL);
 	clear_tlb_flush_pending(mm);
 
 	if (likely(!mm_alloc_pgd(mm))) {
@@ -872,6 +902,9 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
 	int retval;
 
 	tsk->min_flt = tsk->maj_flt = 0;
+#ifdef CONFIG_ZRAM
+    tsk->fm_flt = tsk->swap_in = tsk->swap_out = 0;
+#endif
 	tsk->nvcsw = tsk->nivcsw = 0;
 #ifdef CONFIG_DETECT_HUNG_TASK
 	tsk->last_switch_count = tsk->nvcsw + tsk->nivcsw;
@@ -1091,6 +1124,39 @@ static void copy_flags(unsigned long clone_flags, struct task_struct *p)
 	p->flags = new_flags;
 }
 
+static void copy_seccomp(struct task_struct *p)
+{
+#ifdef CONFIG_SECCOMP
+	/*
+	 * Must be called with sighand->lock held, which is common to
+	 * all threads in the group. Holding cred_guard_mutex is not
+	 * needed because this new task is not yet running and cannot
+	 * be racing exec.
+	 */
+	assert_spin_locked(&current->sighand->siglock);
+
+	/* Ref-count the new filter user, and assign it. */
+	get_seccomp_filter(current);
+	p->seccomp = current->seccomp;
+
+	/*
+	 * Explicitly enable no_new_privs here in case it got set
+	 * between the task_struct being duplicated and holding the
+	 * sighand lock. The seccomp state and nnp must be in sync.
+	 */
+	if (task_no_new_privs(current))
+		task_set_no_new_privs(p);
+
+	/*
+	 * If the parent gained a seccomp mode after copying thread
+	 * flags and between before we held the sighand lock, we have
+	 * to manually enable the seccomp thread flag here.
+	 */
+	if (p->seccomp.mode != SECCOMP_MODE_DISABLED)
+		set_tsk_thread_flag(p, TIF_SECCOMP);
+#endif
+}
+
 SYSCALL_DEFINE1(set_tid_address, int __user *, tidptr)
 {
 	current->clear_child_tid = tidptr;
@@ -1126,6 +1192,32 @@ static void posix_cpu_timers_init(struct task_struct *tsk)
 	INIT_LIST_HEAD(&tsk->cpu_timers[1]);
 	INIT_LIST_HEAD(&tsk->cpu_timers[2]);
 }
+
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+static void mt_init_thread_group(struct task_struct *p){
+#ifdef CONFIG_MT_SCHED_INFO
+	struct task_struct *tg = p->group_leader;
+#endif
+
+	p->thread_group_info[0].cfs_nr_running = 0;
+	p->thread_group_info[0].nr_running = 0 ;
+	p->thread_group_info[0].load_avg_ratio = 0;
+	p->thread_group_info[1].cfs_nr_running = 0;
+	p->thread_group_info[1].nr_running = 0;
+	p->thread_group_info[1].load_avg_ratio = 0;
+
+#ifdef CONFIG_MT_SCHED_INFO
+	mt_sched_printf("fork %d:%s %d:%s %lu %lu %lu, %lu %lu %lu",
+	   tg->pid, tg->comm, p->pid, p->comm,
+	   tg->thread_group_info[0].nr_running,
+	   tg->thread_group_info[0].cfs_nr_running,
+	   tg->thread_group_info[0].load_avg_ratio,
+	   tg->thread_group_info[1].cfs_nr_running,
+	   tg->thread_group_info[1].nr_running,
+	   tg->thread_group_info[1].load_avg_ratio);
+#endif
+}
+#endif
 
 /*
  * This creates a new process as a copy of the old one,
@@ -1195,9 +1287,11 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 		goto fork_out;
 
 	ftrace_graph_init_task(p);
-	get_seccomp_filter(p);
 
 	rt_mutex_init_task(p);
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+	raw_spin_lock_init(&p->thread_group_info_lock);
+#endif
 
 #ifdef CONFIG_PROVE_LOCKING
 	DEBUG_LOCKS_WARN_ON(!p->hardirqs_enabled);
@@ -1316,6 +1410,16 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p->sequential_io_avg	= 0;
 #endif
 
+#ifdef CONFIG_PERFSTATS_PERTASK
+	memset(&p->perfstats, 0, sizeof(p->perfstats));
+#ifdef CONFIG_PERFSTATS_PERTASK_PERFREQ
+	task_perfstats_info(p)->last_cpu = num_possible_cpus() + 1;
+	task_perfstats_info(p)->user = (unsigned char) (-1);
+	task_perfstats_info(p)->last_freq = (unsigned int)(-1);
+	task_perfstats_info(p)->last_freq_idx = (unsigned int) (-1);
+#endif
+#endif
+
 	/* Perform scheduler related setup. Assign this task to a CPU. */
 	sched_fork(p);
 
@@ -1421,6 +1525,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	 */
 	p->group_leader = p;
 	INIT_LIST_HEAD(&p->thread_group);
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+	mt_init_thread_group(p);
+#endif
 	p->task_works = NULL;
 
 	/* Need tasklist lock for parent etc handling! */
@@ -1436,6 +1543,12 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	}
 
 	spin_lock(&current->sighand->siglock);
+
+	/*
+	 * Copy seccomp details explicitly here, in case they were changed
+	 * before holding sighand lock.
+	 */
+	copy_seccomp(p);
 
 	/*
 	 * Process group and session signals need to be delivered to just the
@@ -1571,6 +1684,10 @@ struct task_struct * __cpuinit fork_idle(int cpu)
  * It copies the process, and if successful kick-starts
  * it and waits for it to finish using the VM if required.
  */
+#ifdef CONFIG_SCHEDSTATS
+/* mt shceduler profiling*/
+extern void save_mtproc_info(struct task_struct *p, unsigned long long ts);
+#endif
 long do_fork(unsigned long clone_flags,
 	      unsigned long stack_start,
 	      unsigned long stack_size,
@@ -1632,6 +1749,11 @@ long do_fork(unsigned long clone_flags,
 			get_task_struct(p);
 		}
 
+#ifdef CONFIG_SCHEDSTATS
+        /* mt shceduler profiling*/
+        save_mtproc_info(p, sched_clock());	
+        pr_debug("[%d:%s] fork [%d:%s]\n", current->pid, current->comm, p->pid, p->comm);
+#endif
 		wake_up_new_task(p);
 
 		/* forking complete and child started to run, tell ptracer */
@@ -1642,6 +1764,10 @@ long do_fork(unsigned long clone_flags,
 			if (!wait_for_vfork_done(p, &vfork))
 				ptrace_event_pid(PTRACE_EVENT_VFORK_DONE, pid);
 		}
+#ifdef CONFIG_MT_PRIO_TRACER
+		create_prio_tracer(task_pid_nr(p));
+		update_prio_tracer(task_pid_nr(p), p->prio, p->policy, PTS_KRNL);
+#endif
 
 		put_pid(pid);
 	} else {

@@ -20,6 +20,7 @@
 #include <linux/usb.h>
 #include <linux/usb/audio.h>
 #include <linux/usb/audio-v2.h>
+#include <linux/switch.h>
 
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -227,6 +228,51 @@ static int add_chmap(struct snd_pcm *pcm, int stream,
 
 	return 0;
 }
+static int usb_rates_ctl_info(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_info *uinfo)
+{
+	struct audioformat *fp = snd_kcontrol_chip(kcontrol);
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = fp->nr_rates;
+	uinfo->value.integer.min = 5512;
+	uinfo->value.integer.max = 192000;
+	return 0;
+}
+
+static int usb_rates_ctl_get(struct snd_kcontrol *kcontrol,
+			     struct snd_ctl_elem_value *ucontrol)
+{
+	int i;
+	struct audioformat *fp = snd_kcontrol_chip(kcontrol);
+	memset(ucontrol->value.integer.value, 0,
+	       sizeof(ucontrol->value.integer.value));
+	for (i = 0; i < fp->nr_rates; i++)
+		ucontrol->value.integer.value[i] = fp->rate_table[i];
+	return 0;
+}
+
+/* create bit rate kctl assigned to the given USB substream */
+static int snd_usb_add_rates_ctls(struct snd_usb_audio *chip,
+			     int stream,
+			     struct audioformat *fp)
+{
+	int err;
+	struct snd_kcontrol_new knew = {
+		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
+		.access = SNDRV_CTL_ELEM_ACCESS_READ,
+		.info = usb_rates_ctl_info,
+		.get = usb_rates_ctl_get,
+	};
+
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK)
+		knew.name = "Playback Sample Rates";
+	else
+		knew.name = "Capture Sample Rates";
+
+	err = snd_ctl_add(chip->card, snd_ctl_new1(&knew, fp));
+	return err;
+}
+
 
 /* convert from USB ChannelConfig bits to ALSA chmap element */
 static struct snd_pcm_chmap_elem *convert_chmap(int channels, unsigned int bits,
@@ -307,7 +353,9 @@ static struct snd_pcm_chmap_elem *convert_chmap(int channels, unsigned int bits,
 /*
  * add this endpoint to the chip instance.
  * if a stream with the same endpoint already exists, append to it.
- * if not, create a new pcm stream.
+ * if not, create a new pcm stream. note, fp is added to the substream
+ * fmt_list and will be freed on the chip instance release. do not free
+ * fp or do remove it from the substream fmt_list to avoid double-free.
  */
 int snd_usb_add_audio_stream(struct snd_usb_audio *chip,
 			     int stream,
@@ -509,6 +557,14 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 			SNDRV_PCM_STREAM_CAPTURE : SNDRV_PCM_STREAM_PLAYBACK;
 		altno = altsd->bAlternateSetting;
 
+		if (SNDRV_PCM_STREAM_CAPTURE == stream) {
+			if (1 != switch_get_state(&snd_dev_mic))
+				switch_set_state(&snd_dev_mic, 1);
+		} else {
+			if (switch_get_state(&snd_dev_spk) != 1)
+				switch_set_state(&snd_dev_spk, 1);
+		}
+
 		if (snd_usb_apply_interface_quirk(chip, iface_no, altno))
 			continue;
 
@@ -624,7 +680,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 			continue;
 
 		fp = kzalloc(sizeof(*fp), GFP_KERNEL);
-		if (! fp) {
+		if (!fp) {
 			snd_printk(KERN_ERR "cannot malloc\n");
 			return -ENOMEM;
 		}
@@ -643,6 +699,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		fp->attributes = parse_uac_endpoint_attributes(chip, alts, protocol, iface_no);
 		fp->clock = clock;
 		fp->chmap = convert_chmap(num_channels, chconfig, protocol);
+		INIT_LIST_HEAD(&fp->list);
 
 		/* some quirks for attributes here */
 
@@ -687,6 +744,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		snd_printdd(KERN_INFO "%d:%u:%d: add audio endpoint %#x\n", dev->devnum, iface_no, altno, fp->endpoint);
 		err = snd_usb_add_audio_stream(chip, stream, fp);
 		if (err < 0) {
+			list_del(&fp->list); /* unlink for avoiding double-free */
 			kfree(fp->rate_table);
 			kfree(fp->chmap);
 			kfree(fp);
@@ -696,6 +754,8 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		usb_set_interface(chip->dev, iface_no, altno);
 		snd_usb_init_pitch(chip, iface_no, alts, fp);
 		snd_usb_init_sample_rate(chip, iface_no, alts, fp, fp->rate_max);
+		if (fp->nr_rates)
+			snd_usb_add_rates_ctls(chip, stream, fp);
 	}
 	return 0;
 }

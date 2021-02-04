@@ -17,9 +17,6 @@ obj-$(CONFIG_TOUCHSCREEN_ATMEL_TSADCC)	+= atmel_tsadcc.o
 obj-$(CONFIG_TOUCHSCREEN_AUO_PIXCIR)	+= auo-pixcir-ts.o
 obj-$(CONFIG_TOUCHSCREEN_BU21013)	+= bu21013_ts.o
 obj-$(CONFIG_TOUCHSCREEN_CY8CTMG110)	+= cy8ctmg110_ts.o
-obj-$(CONFIG_TOUCHSCREEN_CYTTSP_CORE)	+= cyttsp_core.o
-obj-$(CONFIG_TOUCHSCREEN_CYTTSP_I2C)	+= cyttsp_i2c.o
-obj-$(CONFIG_TOUCHSCREEN_CYTTSP_SPI)	+= cyttsp_spi.o
 obj-$(CONFIG_TOUCHSCREEN_DA9034)	+= da9034-ts.o
 obj-$(CONFIG_TOUCHSCREEN_DA9052)	+= da9052_tsi.o
 obj-$(CONFIG_TOUCHSCREEN_DYNAPRO)	+= dynapro.o
@@ -72,3 +69,73 @@ obj-$(CONFIG_TOUCHSCREEN_WM97XX_MAINSTONE)	+= mainstone-wm97xx.o
 obj-$(CONFIG_TOUCHSCREEN_WM97XX_ZYLONITE)	+= zylonite-wm97xx.o
 obj-$(CONFIG_TOUCHSCREEN_W90X900)	+= w90p910_ts.o
 obj-$(CONFIG_TOUCHSCREEN_TPS6507X)	+= tps6507x-ts.o
+obj-$(CONFIG_CYPRESS_CYTTSP4_BUS) += cyttsp4_bus.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4)	+= cyttsp4_core.o
+include $(srctree)/drivers/misc/mediatek/Makefile.custom
+ccflags-y += -I$(srctree)/include/linux
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_I2C)	+= cyttsp4_i2c.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_SPI)	+= cyttsp4_spi.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_MT_A)	+= cyttsp4_mt_a.o
+cyttsp4_mt_a-y := cyttsp4_mta.o cyttsp4_mt_common.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_MT_B)	+= cyttsp4_mt_b.o
+cyttsp4_mt_b-y := cyttsp4_mtb.o cyttsp4_mt_common.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_BUTTON)	+= cyttsp4_btn.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_PROXIMITY)	+= cyttsp4_proximity.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_DEVICE_ACCESS)	+= cyttsp4_device_access.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_TEST_DEVICE_ACCESS_API)	+= cyttsp4_test_device_access_api.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_LOADER)	+= cyttsp4_loader.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_DEBUG_MODULE)	+= cyttsp4_debug.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_DEVICETREE_SUPPORT)	+= cyttsp4_devtree.o
+ifeq ($(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_DEBUG),y)
+CFLAGS_cyttsp4_bus.o += -DDEBUG
+CFLAGS_cyttsp4_core.o += -DDEBUG
+CFLAGS_cyttsp4_i2c.o += -DDEBUG
+CFLAGS_cyttsp4_spi.o += -DDEBUG
+CFLAGS_cyttsp4_mta.o += -DDEBUG
+CFLAGS_cyttsp4_mtb.o += -DDEBUG
+CFLAGS_cyttsp4_mt_a.o += -DDEBUG
+CFLAGS_cyttsp4_mt_b.o += -DDEBUG
+CFLAGS_cyttsp4_mt_common.o += -DDEBUG
+CFLAGS_cyttsp4_btn.o += -DDEBUG
+CFLAGS_cyttsp4_proximity.o += -DDEBUG
+CFLAGS_cyttsp4_device_access.o += -DDEBUG
+CFLAGS_cyttsp4_loader.o += -DDEBUG
+CFLAGS_cyttsp4_debug.o += -DDEBUG
+CFLAGS_cyttsp4_devtree.o += -DDEBUG
+CFLAGS_cyttsp4_platform.o += -DDEBUG
+endif
+
+ifeq ($(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_VDEBUG),y)
+CFLAGS_cyttsp4_bus.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_core.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_i2c.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_spi.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_mta.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_mtb.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_mt_a.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_mt_b.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_mt_common.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_btn.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_proximity.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_device_access.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_loader.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_debug.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_devtree.o += -DVERBOSE_DEBUG
+CFLAGS_cyttsp4_platform.o += -DVERBOSE_DEBUG
+endif
+
+#mediatek touchscreen drivers support
+obj-$(CONFIG_TOUCHSCREEN_MTK_SUPPORT)	+= mediatek/
+#only jungle projects use  touch_platform
+obj-$(CONFIG_TOUCHSCREEN_JUNGLE_SUPPORT) += touch_platform.o
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI4)	+= synaptics_i2c_rmi4.o
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_RMI4_DEV)	+= rmi_dev.o
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_RMI4_F54)	+= rmi_f54.o
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_RMI4_FW_UPDATE) += rmi_fw_update.o
+#obj-$(CONFIG_TOUCHSCREEN_MTK_GT927)	+= mediatek/GT927/
+#obj-$(CONFIG_TOUCHSCREEN_MTK_GT9110)	+= mediatek/GT9110/
+#obj-$(CONFIG_TOUCHSCREEN_MTK_GT9XX)	+= mediatek/GT9XX/
+#obj-$(CONFIG_TOUCHSCREEN_MTK_GT911)	+= mediatek/GT911/
+#obj-$(CONFIG_TOUCHSCREEN_MTK_GT813TB)	+= mediatek/GT813TB/
+#obj-$(CONFIG_TOUCHSCREEN_MTK_ATMEL_MXT)	+= mediatek/atmel_mxt_ts/
+#obj-$(CONFIG_TOUCHSCREEN_MTK_FT5X06)	+= mediatek/ft5x06tb/

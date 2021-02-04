@@ -91,6 +91,25 @@ static int msg_level = -1;
 module_param (msg_level, int, 0);
 MODULE_PARM_DESC (msg_level, "Override default message level");
 
+
+/* Collecting metric for Sloane */
+#ifdef CONFIG_AMAZON_METRICS_LOG
+#include <linux/metricslog.h>
+#define ETH_METRIC_TAG "kernel"
+#define METRICS_ETH_DATA_LEN  256
+static struct timespec   prev_time;
+
+static struct work_struct eth_metrics_work;
+static char logcat_eth_data[METRICS_ETH_DATA_LEN] = {0};
+
+static void eth_metrics(struct work_struct *work)
+{
+	/* Log suspend state failure or success */
+	log_to_metrics(ANDROID_LOG_INFO, ETH_METRIC_TAG, logcat_eth_data);
+}
+
+#endif
+
 /*-------------------------------------------------------------------------*/
 
 /* handles CDC Ethernet and many other network "bulk data" interfaces */
@@ -544,6 +563,11 @@ static void rx_complete (struct urb *urb)
 	int			urb_status = urb->status;
 	enum skb_state		state;
 
+#ifdef CONFIG_AMAZON_METRICS_LOG
+	struct timespec  current_time;
+	struct timespec  delta_time;
+#endif
+
 	skb_put (skb, urb->actual_length);
 	state = rx_done;
 	entry->urb = NULL;
@@ -603,6 +627,35 @@ block:
 
 	/* stop rx if packet error rate is high */
 	if (++dev->pkt_cnt > 30) {
+		/* Sloane Ethernet metrics */
+#ifdef CONFIG_AMAZON_METRICS_LOG
+		/* Don't want to overwhelm the metric log */
+		/* print the metrics every 24 hours or 86400 seconds */
+		getnstimeofday(&current_time);
+		delta_time = timespec_sub(current_time, prev_time);
+
+		if (abs(delta_time.tv_sec) >= 86400) {
+			printk(KERN_INFO"Metrics: dev:%s MTU:%d pkt_err:%d Dropped:%lu  rx/tx:%lu/%lu, errs:%lu/%lu\n",
+				dev->driver_info->description,
+				dev->net->mtu,
+				dev->pkt_err, dev->net->stats.rx_dropped,
+				dev->net->stats.rx_packets, dev->net->stats.tx_packets,
+				dev->net->stats.rx_errors, dev->net->stats.tx_errors);
+
+			memset(logcat_eth_data, 0, sizeof(logcat_eth_data));
+			snprintf(logcat_eth_data, METRICS_ETH_DATA_LEN,
+				"Metrics: dev:%s MTU:%d pkt_err:%d Dropped:%lu  rx/tx:%lu/%lu, errs:%lu/%lu\n",
+				dev->driver_info->description,
+				dev->net->mtu,
+				dev->pkt_err, dev->net->stats.rx_dropped,
+				dev->net->stats.rx_packets, dev->net->stats.tx_packets,
+				dev->net->stats.rx_errors, dev->net->stats.tx_errors);
+			schedule_work(&eth_metrics_work);
+
+			prev_time = current_time;
+		}
+#endif
+
 		dev->pkt_cnt = 0;
 		dev->pkt_err = 0;
 	} else {
@@ -754,6 +807,9 @@ int usbnet_stop (struct net_device *net)
 	struct usbnet		*dev = netdev_priv(net);
 	struct driver_info	*info = dev->driver_info;
 	int			retval, pm;
+#ifdef CONFIG_AMAZON_METRICS_LOG
+	char logcat_eth_data[METRICS_ETH_DATA_LEN];
+#endif
 
 	clear_bit(EVENT_DEV_OPEN, &dev->flags);
 	netif_stop_queue (net);
@@ -763,6 +819,15 @@ int usbnet_stop (struct net_device *net)
 		   net->stats.rx_packets, net->stats.tx_packets,
 		   net->stats.rx_errors, net->stats.tx_errors);
 
+#ifdef CONFIG_AMAZON_METRICS_LOG
+		memset(logcat_eth_data, 0, sizeof(logcat_eth_data));
+		snprintf(logcat_eth_data, METRICS_ETH_DATA_LEN,
+			"Metrics: Stop stats: rx/tx %lu/%lu, errs %lu/%lu\n",
+			net->stats.rx_packets, net->stats.tx_packets,
+			net->stats.rx_errors, net->stats.tx_errors);
+
+		log_to_metrics(ANDROID_LOG_INFO, ETH_METRIC_TAG, logcat_eth_data);
+#endif
 	/* to not race resume */
 	pm = usb_autopm_get_interface(dev->intf);
 	/* allow minidriver to stop correctly (wireless devices to turn off
@@ -816,6 +881,10 @@ int usbnet_open (struct net_device *net)
 	int			retval;
 	struct driver_info	*info = dev->driver_info;
 
+#ifdef CONFIG_AMAZON_METRICS_LOG
+	/* Initialzie the time used to calculate the delta */
+	getnstimeofday(&prev_time);
+#endif
 	if ((retval = usb_autopm_get_interface(dev->intf)) < 0) {
 		netif_info(dev, ifup, dev->net,
 			   "resumption fail (%d) usbnet usb-%s-%s, %s\n",
@@ -1621,6 +1690,13 @@ out3:
 	if (info->unbind)
 		info->unbind (dev, udev);
 out1:
+	/* subdrivers must undo all they did in bind() if they
+	 * fail it, but we may fail later and a deferred kevent
+	 * may trigger an error resubmitting itself and, worse,
+	 * schedule a timer. So we kill it all just in case.
+	 */
+	cancel_work_sync(&dev->kevent);
+	del_timer_sync(&dev->delay);
 	free_netdev(net);
 out:
 	return status;
@@ -1960,12 +2036,20 @@ static int __init usbnet_init(void)
 		FIELD_SIZEOF(struct sk_buff, cb) < sizeof(struct skb_data));
 
 	eth_random_addr(node_id);
+
+#if defined(CONFIG_AMAZON_METRICS_LOG)
+	INIT_WORK(&eth_metrics_work, eth_metrics);
+#endif /* CONFIG_AMAZON_METRICS_LOG	*/
+
 	return 0;
 }
 module_init(usbnet_init);
 
 static void __exit usbnet_exit(void)
 {
+#if defined(CONFIG_AMAZON_METRICS_LOG)
+	cancel_work_sync(&eth_metrics_work);
+#endif /* CONFIG_AMAZON_METRICS_LOG	*/
 }
 module_exit(usbnet_exit);
 

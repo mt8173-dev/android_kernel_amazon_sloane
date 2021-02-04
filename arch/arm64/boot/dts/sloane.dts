@@ -1,0 +1,176 @@
+
+/dts-v1/;
+
+/memreserve/ 0x41E00000 0xA00000;
+
+#include "mt8173.dtsi"
+
+/ {
+  memory@00000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x3F200000>;
+	};
+
+	mtk-msdc {
+		MSDC3@0x11260000 {
+			status = "disabled";
+		};
+	};
+
+	bus {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0 0 0 0xffffffff>;
+		I2C1@0x11008000 {
+			da9212-regulator {
+				compatible = "dlg,da9212-regulator";
+				#address-cells = <0>;
+				reg = <0x68>;
+				regulators {
+					da9212_vcpu_reg: BUCKA {
+						regulator-name = "VBUCKA";
+						regulator-min-microvolt = < 700000>;
+						regulator-max-microvolt = <1310000>;
+						regulator-min-microamp	= <2000000>;
+						regulator-max-microamp	= <4400000>;
+						regulator-ramp-delay = <10000>;
+						en-gpio = <&pioE 25 0>;
+					};
+					da9212_vgpu_reg: BUCKB {
+						regulator-name = "VBUCKB";
+						regulator-min-microvolt = < 700000>;
+						regulator-max-microvolt = <1310000>;
+						regulator-min-microamp	= <2000000>;
+						regulator-max-microamp	= <3000000>;
+						regulator-ramp-delay = <10000>;
+						en-gpio = <&pioE 24 0>;
+					};
+				};
+			};
+		};
+		I2C3@0x11010000 {
+			bq24297_charger@6B {
+				compatible = "ti,bq24297";
+				reg = <0x6B>;
+			};
+		};
+		I2C4@0x11011000 {
+			tmp103-sensor@70 {
+				compatible = "ti,tmp103_temp_sensor";
+				reg = <0x70>;
+				offset = <4700>;
+				alpha = <3>;
+				weight = <400>;
+
+			};
+			tmp103-sensor@71 {
+				compatible = "ti,tmp103_temp_sensor";
+				reg = <0x71>;
+				offset = <3400>;
+				alpha = <1000>;
+				weight = <0>;
+			};
+			tmp103-sensor@72 {
+				compatible = "ti,tmp103_temp_sensor";
+				reg = <0x72>;
+				offset = <1400>;
+				alpha = <1>;
+				weight = <600>;
+			};
+
+                        lp5562@30 {
+                                compatible = "ti,lp5562";
+                                reg = <0x30>;
+                                clock-mode = /bits/8 <2>;
+
+                                chan0 {
+                                        chan-name = "R";
+                                        led-cur = /bits/ 8 <0xC1>;
+                                        max-cur = /bits/ 8 <0xC8>;
+                                };
+
+                                chan1 {
+                                        chan-name = "G";
+                                        led-cur = /bits/ 8 <0xC1>;
+                                        max-cur = /bits/ 8 <0xC8>;
+                                };
+
+                                chan2 {
+                                        chan-name = "B";
+                                        led-cur = /bits/ 8 <0xC1>;
+                                        max-cur = /bits/ 8 <0xC8>;
+                                };
+
+                                chan3 {
+                                        chan-name = "W";
+                                        led-cur = /bits/ 8 <0xC1>;
+                                        max-cur = /bits/ 8 <0xC8>;
+                                };
+                        };
+                };
+
+		SSUSB@0x11270000 {
+			port-num = <2>; /* is the max(u2-ports, u3-ports) */
+			drv-mode = <3>; /* 1: host, 2: device, 3 dual-mode */
+			str-mode = <1>; /* 0: none for tablet, 1: alive for wifi-bt-eth, 2: deep str*/
+			otg-mode = <2>; /* 0: srp-hnp, 1: iddig-eint, 2: manual */
+			is-u3-otg = <0>; /* device is usb3.0? */
+			wakeup-src = <2>; /* bit0: iddig, bit1: linestate-0p, bit2: linestate-1p */
+			init-as-host = <0>;  /* 0: device, 1: host */
+			p0-vbus-mode = <2>; /* 0: default on, 1: by charger ic, 2: gpio */
+			p0-gpio = <&pioE 13 0>; /* gpio-ext-num = 135 + 13, 0: high level valid */
+			p1-vbus-mode = <0>;
+		};
+
+		HDMI@0x14025000 {
+			gpios = <&pioE 34 0>; /*5V DDC ENABLE GPIO */
+		};
+
+		pinctrl@0x10005000 {
+			pinctrl-names = "default";
+			pinctrl-0 = <&state_default>;
+
+			state_default:pinctrl@0x10005000 {
+			};
+			pcfg_bt_wake_up:bt_wake_up {
+                    		mediatek,pins = <MT8173_PIN_100_MSDC2_DAT0__FUNC_GPIO100 &pcfg_pull_up>;
+            };
+		};
+
+		pinctrl@0x0000C000 {/*External gpio pinctrl*/
+		};
+	};
+
+	MSDC1_INS@1 {
+		compatible = "mediatek,MSDC1_INS-eint";
+		interrupt-parent = <&eintc>;
+		interrupts = <1 IRQ_TYPE_LEVEL_LOW>;
+		gpio-pullen = <0x10005100 0x2>;	/* GPIO1 pull enable(reg-base, mask(1-enable,0-disable)) */
+		gpio-pullsel = <0x10005200 0x2>;	/* GPIO1 pull select(reg-base, mask(1-HIGH,0-LOW)) */
+		debounce = <1 1000>;
+	};
+
+	sound {
+		mediatek,board-channel-type = <0>; /* 0(Stereo) 1(MonoLeft) 2(MonoRight) */
+	};
+
+	mediatek,mt-soc-codec {
+		mediatek,speaker-mode = <0>; /* 0(CLASSD) 1(CLASSAB) */
+	};
+
+	mediatek,mt76xx_wifi_ctrl {
+		compatible = "mediatek, mt76xx_wifi_ctrl";
+		rst-gpio = <104>;/* WIFI_RST_EN */
+		interrupt-parent = <&eintc>;
+		interrupts = <101 IRQ_TYPE_LEVEL_LOW >;
+	};
+	mediatek,mt76xx_bt_ctrl {
+		compatible = "mediatek,mt76xx_bt_ctrl";
+		interrupt-parent = <&eintc>;
+		interrupts = < 100 IRQ_TYPE_LEVEL_LOW >;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pcfg_bt_wake_up>;
+	};
+
+};

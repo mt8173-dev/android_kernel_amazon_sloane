@@ -79,6 +79,7 @@
 #define TX_CFG_FIFO_FLUSH_		(0x00000001)
 
 #define HW_CFG				(0x14)
+#define HW_CFG_SMDET_EN_		(0x00020000)
 #define HW_CFG_BIR_			(0x00001000)
 #define HW_CFG_LEDB_			(0x00000800)
 #define HW_CFG_RXDOFF_			(0x00000600)

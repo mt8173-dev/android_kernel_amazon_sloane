@@ -45,6 +45,9 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(block_unplug);
 
 DEFINE_IDA(blk_queue_ida);
 
+int trap_non_toi_io;
+EXPORT_SYMBOL_GPL(trap_non_toi_io);
+
 /*
  * For the allocated request tables
  */
@@ -1016,7 +1019,7 @@ out:
 	 * not count toward the nr_batch_requests limit. There will always
 	 * be some limit enforced by BLK_BATCH_TIME.
 	 */
-	if (ioc_batching(q, ioc))
+	if (ioc_batching(q, ioc) && ioc)
 		ioc->nr_batch_requests--;
 
 	trace_block_getrq(q, bio, rw_flags & 1);
@@ -1859,6 +1862,9 @@ EXPORT_SYMBOL(generic_make_request);
 void submit_bio(int rw, struct bio *bio)
 {
 	bio->bi_rw |= rw;
+
+	if (unlikely(trap_non_toi_io))
+		BUG_ON(!(bio->bi_flags & BIO_TOI));
 
 	/*
 	 * If it's a regular read/write or a barrier with data attached,

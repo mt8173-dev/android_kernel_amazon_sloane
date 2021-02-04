@@ -25,17 +25,27 @@
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
 #include <linux/ftrace.h>
+#include <linux/rtc.h>
 #include <trace/events/power.h>
+#include <linux/wakeup_reason.h>
 
 #include "power.h"
 
 struct pm_sleep_state pm_states[PM_SUSPEND_MAX] = {
+//<20130327> <marc.huang> merge from android kernel 3.0 - add [PM_SUSPEND_ON] into pm_states
+#ifdef CONFIG_EARLYSUSPEND
+	[PM_SUSPEND_ON]		= { .label = "on", },
+#endif
 	[PM_SUSPEND_FREEZE] = { .label = "freeze", .state = PM_SUSPEND_FREEZE },
 	[PM_SUSPEND_STANDBY] = { .label = "standby", },
 	[PM_SUSPEND_MEM] = { .label = "mem", },
 };
 
 static const struct platform_suspend_ops *suspend_ops;
+
+#ifdef CONFIG_PM_STATS_SUPPORT
+extern u64 pm_accumulate_time(ktime_t starttime);
+#endif
 
 static bool need_suspend_ops(suspend_state_t state)
 {
@@ -62,7 +72,7 @@ void freeze_wake(void)
 }
 EXPORT_SYMBOL_GPL(freeze_wake);
 
-static bool valid_state(suspend_state_t state)
+bool valid_state(suspend_state_t state)
 {
 	/*
 	 * PM_SUSPEND_STANDBY and PM_SUSPEND_MEM states need low level
@@ -71,6 +81,7 @@ static bool valid_state(suspend_state_t state)
 	 */
 	return suspend_ops && suspend_ops->valid && suspend_ops->valid(state);
 }
+EXPORT_SYMBOL_GPL(valid_state);
 
 /**
  * suspend_set_ops - Set the global suspend method table.
@@ -125,6 +136,9 @@ static int suspend_test(int level)
 static int suspend_prepare(suspend_state_t state)
 {
 	int error;
+#ifdef CONFIG_PM_STATS_SUPPORT
+    ktime_t time; 
+#endif
 
 	if (need_suspend_ops(state) && (!suspend_ops || !suspend_ops->enter))
 		return -EPERM;
@@ -135,10 +149,21 @@ static int suspend_prepare(suspend_state_t state)
 	if (error)
 		goto Finish;
 
+#ifdef CONFIG_PM_STATS_SUPPORT
+    time = ktime_get();
+    pm_stats.normal += pm_accumulate_time(pm_stats.time);
+    pm_stats.time = ktime_get();
+    pm_stats.suspending = 1;
+#endif
+
 	error = suspend_freeze_processes();
+#ifdef CONFIG_PM_STATS_SUPPORT
+    pm_trans.freeze++;
+    pm_stats.freeze += pm_accumulate_time(time);
+#endif		
 	if (!error)
 		return 0;
-
+	log_suspend_abort_reason("One or more tasks refusing to freeze");
 	suspend_stats.failed_freeze++;
 	dpm_save_failed_step(SUSPEND_FREEZE);
  Finish:
@@ -168,7 +193,8 @@ void __attribute__ ((weak)) arch_suspend_enable_irqs(void)
  */
 static int suspend_enter(suspend_state_t state, bool *wakeup)
 {
-	int error;
+	char suspend_abort[MAX_SUSPEND_ABORT_LEN];
+	int error, last_dev;
 
 	if (need_suspend_ops(state) && suspend_ops->prepare) {
 		error = suspend_ops->prepare();
@@ -178,7 +204,11 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 
 	error = dpm_suspend_end(PMSG_SUSPEND);
 	if (error) {
+		last_dev = suspend_stats.last_failed_dev + REC_FAILED_NUM - 1;
+		last_dev %= REC_FAILED_NUM;
 		printk(KERN_ERR "PM: Some devices failed to power down\n");
+		log_suspend_abort_reason("%s device failed to power down",
+			suspend_stats.failed_devs[last_dev]);
 		goto Platform_finish;
 	}
 
@@ -203,8 +233,10 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	}
 
 	error = disable_nonboot_cpus();
-	if (error || suspend_test(TEST_CPUS))
+	if (error || suspend_test(TEST_CPUS)) {
+		log_suspend_abort_reason("Disabling non-boot cpus failed");
 		goto Enable_cpus;
+	}
 
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
@@ -215,6 +247,10 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		if (!(suspend_test(TEST_CORE) || *wakeup)) {
 			error = suspend_ops->enter(state);
 			events_check_enabled = false;
+		} else {
+			pm_get_active_wakeup_sources(suspend_abort,
+				MAX_SUSPEND_ABORT_LEN);
+			log_suspend_abort_reason(suspend_abort);
 		}
 		syscore_resume();
 	}
@@ -250,6 +286,10 @@ int suspend_devices_and_enter(suspend_state_t state)
 	if (need_suspend_ops(state) && !suspend_ops)
 		return -ENOSYS;
 
+#ifdef CONFIG_TOI
+	drop_pagecache();
+#endif 
+
 	trace_machine_suspend(state);
 	if (need_suspend_ops(state) && suspend_ops->begin) {
 		error = suspend_ops->begin(state);
@@ -262,6 +302,7 @@ int suspend_devices_and_enter(suspend_state_t state)
 	error = dpm_suspend_start(PMSG_SUSPEND);
 	if (error) {
 		printk(KERN_ERR "PM: Some devices failed to suspend\n");
+		log_suspend_abort_reason("Some devices failed to suspend");
 		goto Recover_platform;
 	}
 	suspend_test_finish("suspend devices");
@@ -290,6 +331,7 @@ int suspend_devices_and_enter(suspend_state_t state)
 		suspend_ops->recover();
 	goto Resume_devices;
 }
+EXPORT_SYMBOL_GPL(suspend_devices_and_enter);
 
 /**
  * suspend_finish - Clean up before finishing the suspend sequence.
@@ -312,7 +354,8 @@ static void suspend_finish(void)
  * Fail if that's not the case.  Otherwise, prepare for system suspend, make the
  * system enter the given sleep state and clean up after wakeup.
  */
-static int enter_state(suspend_state_t state)
+//<20130327> <marc.huang> merge from android kernel 3.0 - modify enter_state function to non-static
+int enter_state(suspend_state_t state)
 {
 	int error;
 
@@ -358,6 +401,18 @@ static int enter_state(suspend_state_t state)
 	return error;
 }
 
+static void pm_suspend_marker(char *annotation)
+{
+	struct timespec ts;
+	struct rtc_time tm;
+
+	getnstimeofday(&ts);
+	rtc_time_to_tm(ts.tv_sec, &tm);
+	pr_info("PM: suspend %s %d-%02d-%02d %02d:%02d:%02d.%09lu UTC\n",
+		annotation, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+		tm.tm_hour, tm.tm_min, tm.tm_sec, ts.tv_nsec);
+}
+
 /**
  * pm_suspend - Externally visible function for suspending the system.
  * @state: System sleep state to enter.
@@ -372,6 +427,7 @@ int pm_suspend(suspend_state_t state)
 	if (state <= PM_SUSPEND_ON || state >= PM_SUSPEND_MAX)
 		return -EINVAL;
 
+	pm_suspend_marker("entry");
 	error = enter_state(state);
 	if (error) {
 		suspend_stats.fail++;
@@ -379,6 +435,7 @@ int pm_suspend(suspend_state_t state)
 	} else {
 		suspend_stats.success++;
 	}
+	pm_suspend_marker("exit");
 	return error;
 }
 EXPORT_SYMBOL(pm_suspend);

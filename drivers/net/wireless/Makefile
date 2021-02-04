@@ -57,3 +57,9 @@ obj-$(CONFIG_MWIFIEX)	+= mwifiex/
 
 obj-$(CONFIG_BRCMFMAC)	+= brcm80211/
 obj-$(CONFIG_BRCMSMAC)	+= brcm80211/
+
+ifneq ($(CONFIG_ARCH_MT6595), y)
+ifneq ($(CONFIG_MTK_COMBO_CHIP_MT7662),y)
+obj-$(CONFIG_MTK_COMBO_WIFI) += mt66xx/
+endif
+endif

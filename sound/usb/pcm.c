@@ -36,6 +36,12 @@
 #include "clock.h"
 #include "power.h"
 
+#ifdef CONFIG_AMAZON_METRICS_LOG
+#include <linux/metricslog.h>
+#define METRIC_TAG		"wifi_remote_voice_search"
+#define METRIC_BUF_SIZE		128
+#endif
+
 #define SUBSTREAM_FLAG_DATA_EP_STARTED	0
 #define SUBSTREAM_FLAG_SYNC_EP_STARTED	1
 
@@ -312,6 +318,10 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 	unsigned int ep, attr;
 	int is_playback = subs->direction == SNDRV_PCM_STREAM_PLAYBACK;
 	int err, implicit_fb = 0;
+#ifdef CONFIG_AMAZON_METRICS_LOG
+	char metric_buf[METRIC_BUF_SIZE];
+	unsigned int idVendor, idProduct;
+#endif
 
 	iface = usb_ifnum_to_if(dev, fmt->iface);
 	if (WARN_ON(!iface))
@@ -339,8 +349,20 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 	/* set interface */
 	if (subs->interface != fmt->iface ||
 	    subs->altset_idx != fmt->altset_idx) {
+		snd_printdd(KERN_INFO "usb_set_interface initiated for %d:%d\n",
+				fmt->iface, fmt->altsetting);
 		err = usb_set_interface(dev, fmt->iface, fmt->altsetting);
 		if (err < 0) {
+#ifdef CONFIG_AMAZON_METRICS_LOG
+			idVendor  = le16_to_cpu(dev->descriptor.idVendor);
+			idProduct = le16_to_cpu(dev->descriptor.idProduct);
+			if ((idVendor == 0x1949) &&
+			    ((idProduct == 0x407  && fmt->iface == 2) || (idProduct == 0x406  && fmt->iface == 3))) {
+				memset(metric_buf, 0, sizeof(metric_buf));
+				snprintf(metric_buf, sizeof(metric_buf), "kernel_wifi_vs:def:usb_set_interface=1;CT;1:NR");
+				log_to_metrics(ANDROID_LOG_INFO, METRIC_TAG, metric_buf);
+			}
+#endif
 			snd_printk(KERN_ERR "%d:%d:%d: usb_set_interface failed (%d)\n",
 				   dev->devnum, fmt->iface, fmt->altsetting, err);
 			return -EIO;

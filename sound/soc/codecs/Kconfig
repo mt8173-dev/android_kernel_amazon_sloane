@@ -269,6 +269,11 @@ config SND_SOC_DFBMCS320
 config SND_SOC_DMIC
 	tristate
 
+config SND_SOC_MAX97236
+	bool "Maxim 97236 AMP"
+	help
+	MAXIM 97236 headset amplifier
+
 config SND_SOC_ISABELLE
         tristate
 
@@ -525,3 +530,8 @@ config SND_SOC_ML26124
 
 config SND_SOC_TPA6130A2
 	tristate
+
+config SND_SOC_TFA98xx
+	bool "NXP TFA98xx Speaker amplifier"
+	help
+	NXP TFA9890 Speaker Amp on msm8994.

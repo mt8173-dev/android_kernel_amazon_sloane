@@ -12,6 +12,11 @@
 
 #include "power.h"
 
+//<20130327> <marc.huang> add autosleep dubug log
+#define _TAG_AUTOSLEEP "AUTOSLEEP"
+#define autosleep_log(fmt, ...)    pr_info("[%s][%s]" fmt, _TAG_AUTOSLEEP, __func__, ##__VA_ARGS__)
+#define autosleep_warn(fmt, ...)   pr_warn("[%s][%s]" fmt, _TAG_AUTOSLEEP, __func__, ##__VA_ARGS__)
+
 static suspend_state_t autosleep_state;
 static struct workqueue_struct *autosleep_wq;
 /*
@@ -27,11 +32,15 @@ static void try_to_suspend(struct work_struct *work)
 {
 	unsigned int initial_count, final_count;
 
+	//<20130327> <marc.huang> add autosleep dubug log
+	autosleep_log("pm_get_wakeup_count\n");
 	if (!pm_get_wakeup_count(&initial_count, true))
 		goto out;
 
 	mutex_lock(&autosleep_lock);
 
+	//<20130327> <marc.huang> add autosleep dubug log
+	autosleep_log("pm_save_wakeup_count\n");
 	if (!pm_save_wakeup_count(initial_count) ||
 		system_state != SYSTEM_RUNNING) {
 		mutex_unlock(&autosleep_lock);
@@ -39,13 +48,19 @@ static void try_to_suspend(struct work_struct *work)
 	}
 
 	if (autosleep_state == PM_SUSPEND_ON) {
+		//<20130327> <marc.huang> add autosleep dubug log
+		autosleep_warn("abort due to autosleep_state: %d\n", autosleep_state);
 		mutex_unlock(&autosleep_lock);
 		return;
 	}
 	if (autosleep_state >= PM_SUSPEND_MAX)
 		hibernate();
 	else
+        {
+		//<20130327> <marc.huang> add autosleep dubug log
+		autosleep_log("pm_suspend, autosleep_state: %d\n", autosleep_state);
 		pm_suspend(autosleep_state);
+        }
 
 	mutex_unlock(&autosleep_lock);
 
@@ -60,6 +75,8 @@ static void try_to_suspend(struct work_struct *work)
 		schedule_timeout_uninterruptible(HZ / 2);
 
  out:
+	//<20130327> <marc.huang> add autosleep dubug log
+	autosleep_log("queue_up_suspend_work again\n");
 	queue_up_suspend_work();
 }
 
@@ -68,7 +85,11 @@ static DECLARE_WORK(suspend_work, try_to_suspend);
 void queue_up_suspend_work(void)
 {
 	if (autosleep_state > PM_SUSPEND_ON)
+        {
+		//<20130327> <marc.huang> add autosleep dubug log
+		autosleep_log("autosleep_state: %d\n", autosleep_state);
 		queue_work(autosleep_wq, &suspend_work);
+        }
 }
 
 suspend_state_t pm_autosleep_state(void)
@@ -103,9 +124,13 @@ int pm_autosleep_set_state(suspend_state_t state)
 	__pm_relax(autosleep_ws);
 
 	if (state > PM_SUSPEND_ON) {
+		//<20130327> <marc.huang> add autosleep dubug log
+		autosleep_log("pm_wakep_autosleep_enabled(true)\n");
 		pm_wakep_autosleep_enabled(true);
 		queue_up_suspend_work();
 	} else {
+		//<20130327> <marc.huang> add autosleep dubug log
+		autosleep_log("pm_wakep_autosleep_enabled(false)\n");
 		pm_wakep_autosleep_enabled(false);
 	}
 

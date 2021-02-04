@@ -45,6 +45,11 @@
 #include <asm/smp_plat.h>
 #include <asm/virt.h>
 #include <asm/mach/arch.h>
+#include <linux/mt_sched_mon.h>
+
+#ifdef CONFIG_MTK_SCHED_TRACERS
+#include <trace/events/mtk_events.h>
+#endif
 
 /*
  * as from 2.5, kernels no longer have an init_tasks structure
@@ -66,6 +71,7 @@ enum ipi_msg_type {
 	IPI_CALL_FUNC,
 	IPI_CALL_FUNC_SINGLE,
 	IPI_CPU_STOP,
+	IPI_CPU_BACKTRACE,
 };
 
 static DECLARE_COMPLETION(cpu_running);
@@ -209,7 +215,7 @@ void __cpuinit __cpu_die(unsigned int cpu)
 		pr_err("CPU%u: cpu didn't die\n", cpu);
 		return;
 	}
-	printk(KERN_NOTICE "CPU%u: shutdown\n", cpu);
+	pr_debug("CPU%u: shutdown\n", cpu);
 
 	/*
 	 * platform_cpu_kill() is generally expected to do the powering off
@@ -312,7 +318,7 @@ static void percpu_timer_setup(void);
 asmlinkage void __cpuinit secondary_start_kernel(void)
 {
 	struct mm_struct *mm = &init_mm;
-	unsigned int cpu;
+	unsigned int cpu = 0;
 
 	/*
 	 * The identity mapping is uncached (strongly ordered), so
@@ -334,7 +340,7 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 
 	cpu_init();
 
-	printk("CPU%u: Booted secondary processor\n", cpu);
+	pr_debug("CPU%u: Booted secondary processor\n", cpu);
 
 	preempt_disable();
 	trace_hardirqs_off();
@@ -450,6 +456,11 @@ void arch_send_wakeup_ipi_mask(const struct cpumask *mask)
 	smp_cross_call(mask, IPI_WAKEUP);
 }
 
+void arch_send_cpu_stop_ipi_mask(const struct cpumask *mask)
+{
+	smp_cross_call(mask, IPI_CPU_STOP);
+}
+
 void arch_send_call_function_single_ipi(int cpu)
 {
 	smp_cross_call(cpumask_of(cpu), IPI_CALL_FUNC_SINGLE);
@@ -463,6 +474,7 @@ static const char *ipi_types[NR_IPI] = {
 	S(IPI_CALL_FUNC, "Function call interrupts"),
 	S(IPI_CALL_FUNC_SINGLE, "Single function call interrupts"),
 	S(IPI_CPU_STOP, "CPU stop interrupts"),
+	S(IPI_CPU_BACKTRACE, "CPU backtrace"),
 };
 
 void show_ipi_list(struct seq_file *p, int prec)
@@ -578,6 +590,7 @@ static void ipi_cpu_stop(unsigned int cpu)
 		dump_stack();
 		raw_spin_unlock(&stop_lock);
 	}
+	flush_cache_all();
 
 	set_cpu_online(cpu, false);
 
@@ -586,6 +599,58 @@ static void ipi_cpu_stop(unsigned int cpu)
 
 	while (1)
 		cpu_relax();
+}
+
+static cpumask_t backtrace_mask;
+static DEFINE_RAW_SPINLOCK(backtrace_lock);
+
+/* "in progress" flag of arch_trigger_all_cpu_backtrace */
+static unsigned long backtrace_flag;
+
+void smp_send_all_cpu_backtrace(void)
+{
+	unsigned int this_cpu = smp_processor_id();
+	int i;
+
+	if (test_and_set_bit(0, &backtrace_flag))
+		/*
+		 * If there is already a trigger_all_cpu_backtrace() in progress
+		 * (backtrace_flag == 1), don't output double cpu dump infos.
+		 */
+		return;
+
+	cpumask_copy(&backtrace_mask, cpu_online_mask);
+	cpu_clear(this_cpu, backtrace_mask);
+
+	pr_info("Backtrace for cpu %d (current):\n", this_cpu);
+	dump_stack();
+
+	pr_info("\nsending IPI to all other CPUs:\n");
+	smp_cross_call(&backtrace_mask, IPI_CPU_BACKTRACE);
+
+	/* Wait for up to 10 seconds for all other CPUs to do the backtrace */
+	for (i = 0; i < 10 * 1000; i++) {
+		if (cpumask_empty(&backtrace_mask))
+			break;
+		mdelay(1);
+	}
+
+	clear_bit(0, &backtrace_flag);
+	smp_mb__after_clear_bit();
+}
+
+/*
+ * ipi_cpu_backtrace - handle IPI from smp_send_all_cpu_backtrace()
+ */
+static void ipi_cpu_backtrace(unsigned int cpu, struct pt_regs *regs)
+{
+	if (cpu_isset(cpu, backtrace_mask)) {
+		raw_spin_lock(&backtrace_lock);
+		pr_warning("IPI backtrace for cpu %d\n", cpu);
+		show_regs(regs);
+		raw_spin_unlock(&backtrace_lock);
+		cpu_clear(cpu, backtrace_mask);
+	}
 }
 
 /*
@@ -606,41 +671,101 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 	switch (ipinr) {
 	case IPI_WAKEUP:
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_entry(IPI_WAKEUP, "IPI_WAKEUP");
+#endif
+        mt_trace_ISR_start(ipinr);
+        mt_trace_ISR_end(ipinr);
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_exit(IPI_WAKEUP);
+#endif
 		break;
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
 	case IPI_TIMER:
+#ifdef CONFIG_MTK_SCHED_TRACERS
+            trace_ipi_handler_entry(IPI_TIMER, "IPI_TIMER");
+#endif
+        mt_trace_ISR_start(ipinr);
 		irq_enter();
 		tick_receive_broadcast();
+        mt_trace_ISR_end(ipinr);
+#ifdef CONFIG_MTK_SCHED_TRACERS
+            trace_ipi_handler_exit(IPI_TIMER);
+#endif
 		irq_exit();
 		break;
 #endif
 
 	case IPI_RESCHEDULE:
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_entry(IPI_RESCHEDULE, "IPI_RESCHEDULE");
+#endif
 		scheduler_ipi();
 		break;
 
 	case IPI_CALL_FUNC:
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_entry(IPI_CALL_FUNC, "IPI_CALL_FUNC");
+#endif
+        mt_trace_ISR_start(ipinr);
 		irq_enter();
 		generic_smp_call_function_interrupt();
+        mt_trace_ISR_end(ipinr);
+#ifdef  CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_exit(IPI_CALL_FUNC);
+#endif
 		irq_exit();
 		break;
 
 	case IPI_CALL_FUNC_SINGLE:
+#ifdef  CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_entry(IPI_CALL_FUNC_SINGLE, "IPI_CALL_FUNC_SINGLE");
+#endif
+        mt_trace_ISR_start(ipinr);
 		irq_enter();
 		generic_smp_call_function_single_interrupt();
+        mt_trace_ISR_end(ipinr);
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_exit(IPI_CALL_FUNC_SINGLE);
+#endif
 		irq_exit();
 		break;
 
 	case IPI_CPU_STOP:
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_entry(IPI_CPU_STOP, "IPI_CPU_STOP");
+#endif
+        mt_trace_ISR_start(ipinr);
 		irq_enter();
 		ipi_cpu_stop(cpu);
+        mt_trace_ISR_end(ipinr);
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_exit(IPI_CPU_STOP);
+#endif
 		irq_exit();
 		break;
 
+	case IPI_CPU_BACKTRACE:
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_entry(IPI_CPU_BACKTRACE, "IPI_CPU_BACKTRACE");
+#endif
+        mt_trace_ISR_start(ipinr);
+		ipi_cpu_backtrace(cpu, regs);
+        mt_trace_ISR_end(ipinr);
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_ipi_handler_exit(IPI_CPU_BACKTRACE);
+#endif
+		break;
+
 	default:
+#ifdef CONFIG_MTK_SCHED_TRACERS
+        trace_unnamed_irq(ipinr);
+#endif
+        mt_trace_ISR_start(ipinr);
 		printk(KERN_CRIT "CPU%u: Unknown IPI message 0x%x\n",
 		       cpu, ipinr);
+        mt_trace_ISR_end(ipinr);
 		break;
 	}
 	set_irq_regs(old_regs);

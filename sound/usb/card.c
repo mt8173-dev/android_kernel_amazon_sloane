@@ -45,6 +45,7 @@
 #include <linux/usb/audio.h>
 #include <linux/usb/audio-v2.h>
 #include <linux/module.h>
+#include <linux/switch.h>
 
 #include <sound/control.h>
 #include <sound/core.h>
@@ -72,6 +73,8 @@ MODULE_DESCRIPTION("USB Audio");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Generic,USB Audio}}");
 
+struct switch_dev snd_dev_mic;
+struct switch_dev snd_dev_spk;
 
 static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
 static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
@@ -202,7 +205,7 @@ static int snd_usb_create_stream(struct snd_usb_audio *chip, int ctrlif, int int
 		return -EINVAL;
 	}
 
-	if (! snd_usb_parse_audio_interface(chip, interface)) {
+	if (!snd_usb_parse_audio_interface(chip, interface)) {
 		usb_set_interface(dev, interface, 0); /* reset the current interface */
 		usb_driver_claim_interface(&usb_audio_driver, iface, (void *)-1L);
 		return -EINVAL;
@@ -221,6 +224,7 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 	struct usb_interface_descriptor *altsd;
 	void *control_header;
 	int i, protocol;
+	int rest_bytes;
 
 	/* find audiocontrol interface */
 	host_iface = &usb_ifnum_to_if(dev, ctrlif)->altsetting[0];
@@ -235,6 +239,15 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 		return -EINVAL;
 	}
 
+	rest_bytes = (void *)(host_iface->extra + host_iface->extralen) -
+		control_header;
+
+	/* just to be sure -- this shouldn't hit at all */
+	if (rest_bytes <= 0) {
+		dev_err(&dev->dev, "invalid control header\n");
+		return -EINVAL;
+	}
+
 	switch (protocol) {
 	default:
 		snd_printdd(KERN_WARNING "unknown interface protocol %#02x, assuming v1\n",
@@ -244,8 +257,18 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 	case UAC_VERSION_1: {
 		struct uac1_ac_header_descriptor *h1 = control_header;
 
+		if (rest_bytes < sizeof(*h1)) {
+			dev_err(&dev->dev, "too short v1 buffer descriptor\n");
+			return -EINVAL;
+		}
+
 		if (!h1->bInCollection) {
 			snd_printk(KERN_INFO "skipping empty audio interface (v1)\n");
+			return -EINVAL;
+		}
+
+		if (rest_bytes < h1->bLength) {
+			dev_err(&dev->dev, "invalid buffer length (v1)\n");
 			return -EINVAL;
 		}
 
@@ -363,7 +386,7 @@ static int snd_usb_audio_create(struct usb_device *dev, int idx,
 	}
 
 	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
-	if (! chip) {
+	if (!chip) {
 		snd_card_free(card);
 		return -ENOMEM;
 	}
@@ -385,7 +408,8 @@ static int snd_usb_audio_create(struct usb_device *dev, int idx,
 	INIT_LIST_HEAD(&chip->midi_list);
 	INIT_LIST_HEAD(&chip->mixer_list);
 
-	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops)) < 0) {
+	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops);
+	if (err < 0) {
 		snd_usb_audio_free(chip);
 		snd_card_free(card);
 		return err;
@@ -508,17 +532,17 @@ snd_usb_audio_probe(struct usb_device *dev,
 			break;
 		}
 	}
-	if (! chip) {
+	if (!chip) {
 		/* it's a fresh one.
 		 * now look for an empty slot and create a new card instance
 		 */
 		for (i = 0; i < SNDRV_CARDS; i++)
-			if (enable[i] && ! usb_chip[i] &&
+			if (enable[i] && !usb_chip[i] &&
 			    (vid[i] == -1 || vid[i] == USB_ID_VENDOR(id)) &&
 			    (pid[i] == -1 || pid[i] == USB_ID_PRODUCT(id))) {
-				if (snd_usb_audio_create(dev, i, quirk, &chip) < 0) {
+				if (snd_usb_audio_create(dev, i, quirk, &chip) < 0)
 					goto __error;
-				}
+
 				snd_card_set_dev(chip->card, &intf->dev);
 				chip->pm_intf = intf;
 				break;
@@ -541,7 +565,8 @@ snd_usb_audio_probe(struct usb_device *dev,
 	err = 1; /* continue */
 	if (quirk && quirk->ifnum != QUIRK_NO_INTERFACE) {
 		/* need some special handlings */
-		if ((err = snd_usb_create_quirk(chip, intf, &usb_audio_driver, quirk)) < 0)
+	err = snd_usb_create_quirk(chip, intf, &usb_audio_driver, quirk);
+		if (err < 0)
 			goto __error;
 	}
 
@@ -566,9 +591,12 @@ snd_usb_audio_probe(struct usb_device *dev,
 
  __error:
 	if (chip) {
+		/* chip->probing is inside the chip->card object,
+		 * set the value before memory is possibly returned.
+		 */
+		chip->probing = 0;
 		if (!chip->num_interfaces)
 			snd_card_free(chip->card);
-		chip->probing = 0;
 	}
 	mutex_unlock(&register_mutex);
  __err_val:
@@ -588,6 +616,9 @@ static void snd_usb_audio_disconnect(struct usb_device *dev,
 	if (chip == (void *)-1L)
 		return;
 
+	switch_set_state(&snd_dev_spk, 0);
+	switch_set_state(&snd_dev_mic, 0);
+
 	card = chip->card;
 	down_write(&chip->shutdown_rwsem);
 	chip->shutdown = 1;
@@ -596,6 +627,8 @@ static void snd_usb_audio_disconnect(struct usb_device *dev,
 	mutex_lock(&register_mutex);
 	chip->num_interfaces--;
 	if (chip->num_interfaces <= 0) {
+		struct usb_mixer_interface *mixer;
+
 		snd_card_disconnect(card);
 		/* release the pcm resources */
 		list_for_each(p, &chip->pcm_list) {
@@ -610,8 +643,8 @@ static void snd_usb_audio_disconnect(struct usb_device *dev,
 			snd_usbmidi_disconnect(p);
 		}
 		/* release mixer resources */
-		list_for_each(p, &chip->mixer_list) {
-			snd_usb_mixer_disconnect(p);
+		list_for_each_entry(mixer, &chip->mixer_list, list) {
+			snd_usb_mixer_disconnect(mixer);
 		}
 		usb_chip[chip->index] = NULL;
 		mutex_unlock(&register_mutex);
@@ -731,7 +764,7 @@ err_out:
 #define usb_audio_resume	NULL
 #endif		/* CONFIG_PM */
 
-static struct usb_device_id usb_audio_ids [] = {
+static struct usb_device_id usb_audio_ids[] = {
 #include "quirks-table.h"
     { .match_flags = (USB_DEVICE_ID_MATCH_INT_CLASS | USB_DEVICE_ID_MATCH_INT_SUBCLASS),
       .bInterfaceClass = USB_CLASS_AUDIO,
@@ -760,6 +793,18 @@ static int __init snd_usb_audio_init(void)
 		printk(KERN_WARNING "invalid nrpacks value.\n");
 		return -EINVAL;
 	}
+
+	snd_dev_spk.name = "snd_dev_spk";
+	snd_dev_spk.index = 0;
+	snd_dev_spk.state = 0;
+	switch_dev_register(&snd_dev_spk);
+
+	snd_dev_mic.name = "snd_dev_mic";
+	snd_dev_mic.index = 0;
+	snd_dev_mic.state = 0;
+
+	switch_dev_register(&snd_dev_mic);
+
 	return usb_register(&usb_audio_driver);
 }
 

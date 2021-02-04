@@ -3,7 +3,6 @@ TARGETS += cpu-hotplug
 TARGETS += efivarfs
 TARGETS += kcmp
 TARGETS += memory-hotplug
-TARGETS += mqueue
 TARGETS += mount
 TARGETS += net
 TARGETS += ptrace

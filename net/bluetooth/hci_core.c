@@ -37,6 +37,12 @@ static void hci_rx_work(struct work_struct *work);
 static void hci_cmd_work(struct work_struct *work);
 static void hci_tx_work(struct work_struct *work);
 
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+struct hci_dev *globalhdev;
+struct hci_conn *global_hci_conn;
+__u16 globalHandle = 0;
+#endif
+
 /* HCI device list */
 LIST_HEAD(hci_dev_list);
 DEFINE_RWLOCK(hci_dev_list_lock);
@@ -2196,6 +2202,9 @@ int hci_register_dev(struct hci_dev *hdev)
 	if (!hdev->open || !hdev->close)
 		return -EINVAL;
 
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	globalhdev = hdev;
+#endif
 	/* Do not allow HCI_AMP devices to register at index 0,
 	 * so the index can be used as the AMP controller ID.
 	 */
@@ -2222,8 +2231,13 @@ int hci_register_dev(struct hci_dev *hdev)
 	list_add(&hdev->list, &hci_dev_list);
 	write_unlock(&hci_dev_list_lock);
 
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	hdev->workqueue = alloc_workqueue(hdev->name, WQ_HIGHPRI | WQ_UNBOUND |
+							WQ_MEM_RECLAIM, 16);
+#else
 	hdev->workqueue = alloc_workqueue(hdev->name, WQ_HIGHPRI | WQ_UNBOUND |
 					  WQ_MEM_RECLAIM, 1);
+#endif
 	if (!hdev->workqueue) {
 		error = -ENOMEM;
 		goto err;
@@ -2359,12 +2373,13 @@ EXPORT_SYMBOL(hci_resume_dev);
 int hci_recv_frame(struct sk_buff *skb)
 {
 	struct hci_dev *hdev = (struct hci_dev *) skb->dev;
+#ifndef SCO_OVER_HCI_TO_AUDIO_HAL
 	if (!hdev || (!test_bit(HCI_UP, &hdev->flags)
 		      && !test_bit(HCI_INIT, &hdev->flags))) {
 		kfree_skb(skb);
 		return -ENXIO;
 	}
-
+#endif
 	/* Incoming skb */
 	bt_cb(skb)->incoming = 1;
 
@@ -2582,6 +2597,9 @@ static int hci_send_frame(struct sk_buff *skb)
 	/* Time stamp */
 	__net_timestamp(skb);
 
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+if (bt_cb(skb)->pkt_type != HCI_SCODATA_PKT) {
+#endif
 	/* Send copy to monitor */
 	hci_send_to_monitor(hdev, skb);
 
@@ -2589,7 +2607,9 @@ static int hci_send_frame(struct sk_buff *skb)
 		/* Send copy to the sockets */
 		hci_send_to_sock(hdev, skb);
 	}
-
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+}
+#endif
 	/* Get rid of skb owner, prior to sending to the driver. */
 	skb_orphan(skb);
 
@@ -2829,12 +2849,19 @@ void hci_send_acl(struct hci_chan *chan, struct sk_buff *skb, __u16 flags)
 /* Send SCO data */
 void hci_send_sco(struct hci_conn *conn, struct sk_buff *skb)
 {
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	struct hci_dev *hdev = globalhdev;
+#else
 	struct hci_dev *hdev = conn->hdev;
+#endif
 	struct hci_sco_hdr hdr;
 
 	BT_DBG("%s len %d", hdev->name, skb->len);
-
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	hdr.handle = cpu_to_le16(globalHandle);
+#else
 	hdr.handle = cpu_to_le16(conn->handle);
+#endif
 	hdr.dlen   = skb->len;
 
 	skb_push(skb, HCI_SCO_HDR_SIZE);
@@ -2881,6 +2908,11 @@ static struct hci_conn *hci_low_sent(struct hci_dev *hdev, __u8 type,
 			break;
 	}
 
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	conn = global_hci_conn;
+	num = 1;
+#endif
+
 	rcu_read_unlock();
 
 	if (conn) {
@@ -2892,7 +2924,11 @@ static struct hci_conn *hci_low_sent(struct hci_dev *hdev, __u8 type,
 			break;
 		case SCO_LINK:
 		case ESCO_LINK:
+#ifndef SCO_OVER_HCI_TO_AUDIO_HAL
+			cnt = 1;
+#else
 			cnt = hdev->sco_cnt;
+#endif
 			break;
 		case LE_LINK:
 			cnt = hdev->le_mtu ? hdev->le_cnt : hdev->acl_cnt;
@@ -3207,8 +3243,11 @@ static void hci_sched_sco(struct hci_dev *hdev)
 
 	if (!hci_conn_num(hdev, SCO_LINK))
 		return;
-
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	while (conn = hci_low_sent(hdev, SCO_LINK, &quote)) {
+#else
 	while (hdev->sco_cnt && (conn = hci_low_sent(hdev, SCO_LINK, &quote))) {
+#endif
 		while (quote-- && (skb = skb_dequeue(&conn->data_q))) {
 			BT_DBG("skb %p len %d", skb, skb->len);
 			hci_send_frame(skb);
@@ -3300,6 +3339,16 @@ static void hci_tx_work(struct work_struct *work)
 	struct hci_dev *hdev = container_of(work, struct hci_dev, tx_work);
 	struct sk_buff *skb;
 
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	if (!hdev) {
+		BT_ERR("ERROR : hdev is null. Returning.");
+		return;
+	}
+	if (!globalhdev) {
+		BT_ERR("ERROR : globalhdev is null. Returning.");
+		return;
+	}
+#endif
 	BT_DBG("%s acl %d sco %d le %d", hdev->name, hdev->acl_cnt,
 	       hdev->sco_cnt, hdev->le_cnt);
 
@@ -3307,7 +3356,11 @@ static void hci_tx_work(struct work_struct *work)
 
 	hci_sched_acl(hdev);
 
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	hci_sched_sco(globalhdev);
+#else
 	hci_sched_sco(hdev);
+#endif
 
 	hci_sched_esco(hdev);
 
@@ -3366,21 +3419,29 @@ static void hci_scodata_packet(struct hci_dev *hdev, struct sk_buff *skb)
 	skb_pull(skb, HCI_SCO_HDR_SIZE);
 
 	handle = __le16_to_cpu(hdr->handle);
-
-	BT_DBG("%s len %d handle 0x%4.4x", hdev->name, skb->len, handle);
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	if (handle && !globalHandle) {
+		globalHandle = handle;
+		BT_DBG("Handle from recv packet  =  %d\n", handle);
+	}
+#endif
 
 	hdev->stat.sco_rx++;
-
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	conn = global_hci_conn;
+	if (global_hci_conn == NULL)
+		BT_DBG("global_hci_conn is null\n");
+#else
 	hci_dev_lock(hdev);
 	conn = hci_conn_hash_lookup_handle(hdev, handle);
 	hci_dev_unlock(hdev);
-
+#endif
 	if (conn) {
 		/* Send to upper protocol */
 		sco_recv_scodata(conn, skb);
 		return;
 	} else {
-		BT_ERR("%s SCO packet for unknown connection handle %d",
+		BT_DBG("%s SCO packet for unknown connection handle %d",
 		       hdev->name, handle);
 	}
 
@@ -3483,9 +3544,12 @@ static void hci_rx_work(struct work_struct *work)
 	struct hci_dev *hdev = container_of(work, struct hci_dev, rx_work);
 	struct sk_buff *skb;
 
-	BT_DBG("%s", hdev->name);
+	BT_DBG("hci_rx_work:%s", hdev->name);
 
-	while ((skb = skb_dequeue(&hdev->rx_q))) {
+while ((skb = skb_dequeue(&hdev->rx_q))) {
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+	if (bt_cb(skb)->pkt_type != HCI_SCODATA_PKT) {
+#endif
 		/* Send copy to monitor */
 		hci_send_to_monitor(hdev, skb);
 
@@ -3493,12 +3557,15 @@ static void hci_rx_work(struct work_struct *work)
 			/* Send copy to the sockets */
 			hci_send_to_sock(hdev, skb);
 		}
-
+#ifdef SCO_OVER_HCI_TO_AUDIO_HAL
+}
+#endif
+#ifndef SCO_OVER_HCI_TO_AUDIO_HAL
 		if (test_bit(HCI_RAW, &hdev->flags)) {
 			kfree_skb(skb);
 			continue;
 		}
-
+#endif
 		if (test_bit(HCI_INIT, &hdev->flags)) {
 			/* Don't process data packets in this states. */
 			switch (bt_cb(skb)->pkt_type) {
@@ -3511,6 +3578,7 @@ static void hci_rx_work(struct work_struct *work)
 
 		/* Process frame */
 		switch (bt_cb(skb)->pkt_type) {
+#ifndef SCO_OVER_HCI_TO_AUDIO_HAL
 		case HCI_EVENT_PKT:
 			BT_DBG("%s Event packet", hdev->name);
 			hci_event_packet(hdev, skb);
@@ -3520,7 +3588,7 @@ static void hci_rx_work(struct work_struct *work)
 			BT_DBG("%s ACL data packet", hdev->name);
 			hci_acldata_packet(hdev, skb);
 			break;
-
+#endif
 		case HCI_SCODATA_PKT:
 			BT_DBG("%s SCO data packet", hdev->name);
 			hci_scodata_packet(hdev, skb);

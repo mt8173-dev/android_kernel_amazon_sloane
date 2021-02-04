@@ -191,14 +191,26 @@ config LOCKUP_DETECTOR
 	  The overhead should be minimal.  A periodic hrtimer runs to
 	  generate interrupts and kick the watchdog task every 4 seconds.
 	  An NMI is generated every 10 seconds or so to check for hardlockups.
+	  If NMIs are not available on the platform, every 12 seconds the
+	  hrtimer interrupt on one cpu will be used to check for hardlockups
+	  on the next cpu.
 
 	  The frequency of hrtimer and NMI events and the soft and hard lockup
 	  thresholds can be controlled through the sysctl watchdog_thresh.
 
-config HARDLOCKUP_DETECTOR
+config HARDLOCKUP_DETECTOR_NMI
 	def_bool y
 	depends on LOCKUP_DETECTOR && !HAVE_NMI_WATCHDOG
 	depends on PERF_EVENTS && HAVE_PERF_EVENTS_NMI
+
+config HARDLOCKUP_DETECTOR_OTHER_CPU
+	def_bool y
+	depends on LOCKUP_DETECTOR && SMP
+	depends on !HARDLOCKUP_DETECTOR_NMI && !HAVE_NMI_WATCHDOG
+
+config HARDLOCKUP_DETECTOR
+	def_bool y
+	depends on HARDLOCKUP_DETECTOR_NMI || HARDLOCKUP_DETECTOR_OTHER_CPU
 
 config BOOTPARAM_HARDLOCKUP_PANIC
 	bool "Panic (Reboot) On Hard Lockups"
@@ -479,7 +491,7 @@ config DEBUG_KMEMLEAK_EARLY_LOG_SIZE
 	int "Maximum kmemleak early log entries"
 	depends on DEBUG_KMEMLEAK
 	range 200 40000
-	default 400
+	default 1000
 	help
 	  Kmemleak must track all the memory allocations to avoid
 	  reporting false positives. Since memory may be allocated or
@@ -501,6 +513,14 @@ config DEBUG_KMEMLEAK_DEFAULT_OFF
 	help
 	  Say Y here to disable kmemleak by default. It can then be enabled
 	  on the command line via kmemleak=on.
+
+
+config DEBUG_KMEMLEAK_SCAN_DEFAULT_OFF
+	bool "Default kmemleak scan to off"
+	depends on DEBUG_KMEMLEAK
+	help
+	  Say Y here to disable kmemleak scan by default. Scan can be started
+	  by writing "scan=on" to "/sys/kernel/debug/kmemleak" at runtime.
 
 config DEBUG_PREEMPT
 	bool "Debug preemptible kernel"
@@ -669,8 +689,9 @@ config DEBUG_LOCKING_API_SELFTESTS
 	  mutexes and rwsems.
 
 config STACKTRACE
-	bool
+	bool "Stacktrace"
 	depends on STACKTRACE_SUPPORT
+	default y
 
 config DEBUG_STACK_USAGE
 	bool "Stack utilization instrumentation"
@@ -1474,6 +1495,44 @@ config ASYNC_RAID6_TEST
 	  engine if one is available.
 
 	  If unsure, say N.
+
+config PERFSTATS_PERTASK
+	bool "Extended performance statistics per task"
+	help
+	  This option enables accounting of performance statistics per task basis.
+	  with this option you can choose percore or percore_perfrequency performance
+	  statistics accounting per task.
+
+	  If unsure, say N.
+
+config PERFSTATS_PERTASK_PERCORE
+	bool "Extended performance statistics per task related to core transtitions"
+	depends on PERFSTATS_PERTASK
+	help
+	  This option enables accounting of performance statistics per task basis
+	  for separate core. It accounts only information which is not derived from
+	  per task per core per frequency statistics.
+
+	  If unsure, say N.
+
+config PERFSTATS_PERTASK_PERFREQ
+	bool "Extended performance statistics per task related to freq transtitions"
+	depends on PERFSTATS_PERTASK_PERCORE
+	help
+	  This option enables accounting of performance
+	  statistics per task basis for each frequency
+	  bin on separate core.
+
+	  If unsure, say N.
+
+config PERFSTATS_PERTASK_PERFREQ_FNUM
+	int "Max number of entries in cpufreq table"
+	depends on PERFSTATS_PERTASK_PERFREQ
+	range 5 30
+	default 10
+	help
+	  Current implementation statically allocates array big enough to fit
+	  cpu frequency related data.
 
 source "samples/Kconfig"
 

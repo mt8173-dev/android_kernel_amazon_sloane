@@ -55,7 +55,9 @@
 #include <linux/pipe_fs_i.h>
 #include <linux/oom.h>
 #include <linux/compat.h>
-
+#ifdef CONFIG_TRAPZ_TP
+#include <linux/trapz.h>   /* ACOS_MOD_ONELINE */
+#endif
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
 #include <asm/tlb.h>
@@ -1043,6 +1045,20 @@ void set_task_comm(struct task_struct *tsk, char *buf)
 	strlcpy(tsk->comm, buf, sizeof(tsk->comm));
 	task_unlock(tsk);
 	perf_event_comm(tsk);
+	/* ACOS_MOD_BEGIN */
+#ifdef CONFIG_TRAPZ_TP
+	if (TASK_COMM_LEN >= 8) {
+		int tc0 = ((int *)tsk->comm)[0];
+		int tc1 = ((int *)tsk->comm)[1];
+		int tc2 = ((int *)tsk->comm)[2];
+		int tc3 = ((int *)tsk->comm)[3];
+		TRAPZ_DESCRIBE(TRAPZ_KERN_SCHED, TaskComm,
+			"bytes 0..15 of tsk->comm");
+		TRAPZ_LOG(TRAPZ_LOG_DEBUG, 0, TRAPZ_KERN_SCHED, TaskComm,
+			tc0, tc1, tc2, tc3);
+	}
+#endif
+	/* ACOS_MOD_END */
 }
 
 static void filename_to_taskname(char *tcomm, const char *fn, unsigned int len)
@@ -1220,7 +1236,7 @@ EXPORT_SYMBOL(install_exec_creds);
 /*
  * determine how safe it is to execute the proposed program
  * - the caller must hold ->cred_guard_mutex to protect against
- *   PTRACE_ATTACH
+ *   PTRACE_ATTACH or seccomp thread-sync
  */
 static int check_unsafe_exec(struct linux_binprm *bprm)
 {
@@ -1239,7 +1255,7 @@ static int check_unsafe_exec(struct linux_binprm *bprm)
 	 * This isn't strictly necessary, but it makes it harder for LSMs to
 	 * mess up.
 	 */
-	if (current->no_new_privs)
+	if (task_no_new_privs(current))
 		bprm->unsafe |= LSM_UNSAFE_NO_NEW_PRIVS;
 
 	n_fs = 1;
@@ -1286,7 +1302,7 @@ int prepare_binprm(struct linux_binprm *bprm)
 	bprm->cred->egid = current_egid();
 
 	if (!(bprm->file->f_path.mnt->mnt_flags & MNT_NOSUID) &&
-	    !current->no_new_privs &&
+	    !task_no_new_privs(current) &&
 	    kuid_has_mapping(bprm->cred->user_ns, inode->i_uid) &&
 	    kgid_has_mapping(bprm->cred->user_ns, inode->i_gid)) {
 		/* Set-uid? */

@@ -20,6 +20,11 @@ header-y += netfilter_ipv4/
 header-y += netfilter_ipv6/
 header-y += usb/
 header-y += wimax/
+header-y += vcodec/
+header-y += dpframework/
+header-y += cmdq/
+header-y += dispsys/
+header-y += camera/
 
 genhdr-y += version.h
 
@@ -311,6 +316,7 @@ header-y += ppp-ioctl.h
 header-y += ppp_defs.h
 header-y += pps.h
 header-y += prctl.h
+header-y += psci.h
 header-y += ptp_clock.h
 header-y += ptrace.h
 header-y += qnx4_fs.h

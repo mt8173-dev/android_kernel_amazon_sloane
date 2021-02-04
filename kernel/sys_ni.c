@@ -196,6 +196,7 @@ cond_syscall(sys_eventfd2);
 
 /* performance counters: */
 cond_syscall(sys_perf_event_open);
+cond_syscall(sys_trapz);
 
 /* fanotify! */
 cond_syscall(sys_fanotify_init);
@@ -209,3 +210,6 @@ cond_syscall(compat_sys_open_by_handle_at);
 
 /* compare kernel pointers */
 cond_syscall(sys_kcmp);
+
+/* operate on Secure Computing state */
+cond_syscall(sys_seccomp);

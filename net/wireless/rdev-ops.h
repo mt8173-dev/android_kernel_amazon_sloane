@@ -516,11 +516,15 @@ static inline void rdev_rfkill_poll(struct cfg80211_registered_device *rdev)
 
 #ifdef CONFIG_NL80211_TESTMODE
 static inline int rdev_testmode_cmd(struct cfg80211_registered_device *rdev,
-				    void *data, int len)
+				    void *data, int len, struct cfg80211_chan_def *chan_def)
 {
 	int ret;
+	struct cfg80211_go_chan_switch go_chan_switch;
+
 	trace_rdev_testmode_cmd(&rdev->wiphy);
-	ret = rdev->ops->testmode_cmd(&rdev->wiphy, data, len);
+	go_chan_switch.step = *((int *)data);
+	go_chan_switch.chan_def = chan_def;
+	ret = rdev->ops->testmode_cmd(&rdev->wiphy, (void *)&go_chan_switch, len);
 	trace_rdev_return_int(&rdev->wiphy, ret);
 	return ret;
 }

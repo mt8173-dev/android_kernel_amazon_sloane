@@ -49,8 +49,9 @@ show up in /proc/sys/kernel:
 - overflowuid
 - panic
 - panic_on_oops
-- panic_on_unrecovered_nmi
 - panic_on_stackoverflow
+- panic_on_unrecovered_nmi
+- perf_event_paranoid
 - pid_max
 - powersave-nap               [ PPC only ]
 - printk
@@ -412,6 +413,18 @@ dealt with than an uncorrected parity/ECC error get propagated.
 A small number of systems do generate NMI's for bizarre random reasons
 such as power management so the default is off. That sysctl works like
 the existing panic controls already in that directory.
+he existing panic controls already in that directory.
+==============================================================
+
+perf_event_paranoid:
+
+Controls use of the performance events system by unprivileged
+users (without CAP_SYS_ADMIN).  The default value is 1.
+
+ -1: Allow use of (almost) all events by all users
+>=0: Disallow raw tracepoint access by users without CAP_IOC_LOCK
+>=1: Disallow CPU event access by users without CAP_SYS_ADMIN
+>=2: Disallow kernel profiling by users without CAP_SYS_ADMIN
 
 ==============================================================
 
@@ -685,3 +698,11 @@ that time, kernel debugging information is displayed on console.
 
 NMI switch that most IA32 servers have fires unknown NMI up, for
 example.  If a system hangs up, try pressing the NMI switch.
+
+perf_event_paranoid:
+CONFIG_SECURITY_PERF_EVENTS_RESTRICT is set, or 1 otherwise.
+  0: Disallow raw tracepoint access by users without CAP_IOC_LOCK
+  1: Disallow CPU event access by users without CAP_SYS_ADMIN
+  2: Disallow kernel profiling by users without CAP_SYS_ADMIN
+  3: Disallow all event access by users without CAP_SYS_ADMIN
+

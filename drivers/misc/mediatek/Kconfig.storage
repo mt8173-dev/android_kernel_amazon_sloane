@@ -1,0 +1,98 @@
+#
+# All config related to storage(EMMC/SDCard/NAND/MTD/NVRAM...) goes here.
+#
+
+menu "Storage Drivers (EMMC/SDCard/NAND/MTD/NVRAM)"
+
+config MTK_EMMC_SUPPORT
+	bool "MTK_EMMC_SUPPORT"
+	help
+	   eMMC feature enable/disable
+
+config MTK_SHARED_SDCARD
+	bool "MTK_SHARED_SDCARD"
+	help
+	   sdcard will be a folder of /data
+
+# Memory Card
+config MTK_MMC # MMC_MT6516 MMC_MT6573
+	tristate "MediaTek SD/MMC Card Interface support"
+	---help---
+	  This selects the MediaTek(R) Secure digital and Multimedia card Interface.
+	  If you have a machine with a integrated SD/MMC card reader, say Y or M here.
+	  If unsure, say N.
+
+config MTK_NEW_COMBO_EMMC_SUPPORT
+	bool "MTK_NEW_COMBO_EMMC_SUPPORT"
+	help
+	  Add option for new combo-emmc
+
+config MTK_EMMC_SUPPORT_OTP
+	tristate "MediaTek eMMC Card OTP support"
+	---help---
+	  This selects the MediaTek(R) eMMC Card OTP Support.
+		  depends on MTK_MMC
+		  default n
+
+config MTK_SHARED_SDCARD
+	bool "MTK_SHARED_SDCARD"
+	default y
+
+config MTK_MULTI_STORAGE_SUPPORT
+	bool "MTK_MULTI_STORAGE_SUPPORT"
+	help
+	  Support more than 1 SD. Some write app can save to one of the
+	  storages. Ex: Camera,recorder,browser,BT,ATV,CMMB.  Mount service
+	  can mount multi-storage. And Media scanner will scan all storages.
+
+config MTK_MULTI_PARTITION_MOUNT_ONLY_SUPPORT
+	bool "MTK_MULTI_PARTITION_MOUNT_ONLY_SUPPORT"
+	help
+	  Enable/disable USB OTG to mount multi-partition USB disk
+
+config MTK_EMMC_CACHE
+	tristate "eMMC Cache"
+	default n
+	help
+	  Say Y here if you want do enable cache feature for EMMC
+	  If unsure, say N.
+
+config MTK_GPT_SCHEME_SUPPORT
+    bool "GUID partition table"
+    default y
+	help
+	  Enable GPT in MSDC driver
+
+config MTK_DUM_CHAR
+	bool CONFIG_MTK_DUM_CHAR
+	default n
+	help
+	  Enable character devices of partitions
+
+# Nand
+menuconfig MTK_MTD_NAND # MTD_NAND_MT6516
+	tristate "MediaTek Nand Support"
+	depends on MTD_NAND
+	---help---
+	  Enables support for NAND Flash chips wired to MediaTek chips.
+config MTK_MTD_NAND_INTERRUPT_SCHEME # MTD_NAND_MT6516_INTERRUPT_SCHEME MTD_NAND_MT6573_INTERRUPT_SCHEME
+	bool "Nand Read/Write with interrupt scheme"
+	depends on MTK_MTD_NAND
+	default n
+	---help---
+	  Enable interrupt scheme in Nand Read/Write.
+
+config NAND_OTP_SUPPORT
+	bool "NAND_OTP_SUPPORT"
+	depends on MTK_MTD_NAND
+	help
+	   To simplify NAND OTP enable procedue.yes: Enable NAND OTP function
+	   support,no: Disable NAND OTP function support
+
+config MTK_COMBO_NAND_SUPPORT
+	bool "MTK_COMBO_NAND_SUPPORT"
+	depends on !MTK_EMMC_SUPPORT
+	help
+	  To support different NAND page size on the same load
+
+endmenu

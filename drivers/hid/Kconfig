@@ -74,6 +74,16 @@ config UHID
 	To compile this driver as a module, choose M here: the
 	module will be called uhid.
 
+config KEYBOARD_HID # TODO depends on ARCH_MT6516
+        tristate "MediaTek hid keyboard support"
+        depends on HID
+        default n
+        help
+          Say Y here if you want to use the hid keyboard.
+
+          To compile this driver as a module, choose M here: the
+          module will be called hid_keyboard.
+
 config HID_GENERIC
 	tristate "Generic HID driver"
 	depends on HID
@@ -110,6 +120,27 @@ config HID_ACRUX_FF
 	---help---
 	Say Y here if you want to enable force feedback support for ACRUX
 	game controllers.
+
+config HID_AMAZON_ASPEN
+	tristate "Amazon Aspen BT Keyboard / Trackpad"
+	depends on HID
+	default HID
+	---help---
+	Support for Amazon Aspen KB/TrackPad
+	This custom driver handle Vendor specific events.
+
+	Say Y here if you want to enable support for Amazon Aspen KB/TrackPad
+
+config HID_AMAZON_GP
+	tristate "Amazon.com game controller support"
+	depends on USB_HID
+	default y
+	---help---
+	Support for Amazon.com game controllers with modifications to the HID
+	specification.
+
+	Say Y here if you want to enable support for Amazon.com game controllers
+	such as Nefario.
 
 config HID_APPLE
 	tristate "Apple {i,Power,Mac}Books" if EXPERT

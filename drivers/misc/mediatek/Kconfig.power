@@ -1,0 +1,234 @@
+#
+# All config related to power(PMIC/Battery/Charger...) goes here.
+#
+
+menu "Power Related Drivers (PMIC/Battery/Charger)"
+
+# Power Related
+if POWER_SUPPLY
+config MT6326_PMIC # PMIC_MT6326
+	tristate "MediaTek PMIC Driver"
+	depends on ARCH_MT6516
+	default y
+
+config MTK_SMART_BATTERY #
+	tristate "MediaTek Smart Battery Driver"
+	default y
+
+config MTK_DUMMY_BATTERY # DUMMY_BATTERY_MT6516
+	tristate "MediaTek Dummy Battery Driver"
+	depends on ARCH_MT6516
+	default n
+
+config MTK_PMU # PMU_MT6573
+	tristate "MediaTek Power Management Unit Driver"
+	depends on ARCH_MT6573
+	default y
+
+config MTK_FGADC # FGADC_MT6573
+	tristate "MediaTek Fuel Gauge Driver"
+	depends on ARCH_MT6573
+	default y
+
+config MTK_PMIC #
+	tristate "MediaTek Power Management Unit Driver"
+	default y
+
+config MTK_PMIC_WRAP
+	bool "MediaTek PMIC_WRAP driver "
+	default y
+	---help---
+	  MediaTek pmic_wrap driver
+
+config MTK_PMIC_RF2_26M_ALWAYS_ON
+	bool "MediaTek PMIC RF@ 26M always on"
+	default n
+
+config POWER_EXT #
+	tristate "MediaTek Power Ext"
+	default y
+
+config MTK_AUTO_POWER_ON_WITH_CHARGER
+	bool "auto power on when charger in"
+	default n
+
+config MTK_SWCHR_SUPPORT #
+	tristate "MediaTek switch charger"
+	default y
+
+config MTK_BQ24160_SUPPORT
+	bool "MTK_BQ24160_SUPPORT"
+	help
+	  External switching charger
+
+config MTK_BQ24196_SUPPORT
+	bool "MediaTek Battery driver for TI BQ24196"
+	help
+	  BQ24196 charger IC support
+
+config MTK_FAN5405_SUPPORT
+	bool "MTK_FAN5405_SUPPORT"
+	help
+	  use external charger IC
+
+config MTK_FAN5402_SUPPORT
+	bool "MTK_FAN5402_SUPPORT"
+	help
+	  New Config BBK92 Drive Only Codebase
+
+config MTK_BQ24158_SUPPORT
+	bool "MTK_BQ24158_SUPPORT"
+	help
+	  add MTK_BQ24158_SUPPORT to ProjectConfig.mk default off
+
+config MTK_BQ24296_SUPPORT
+	bool "MTK_BQ24296_SUPPORT"
+	help
+	  BQ24296 charger IC support Yes to support bq24296 No to not
+	  support bq24296
+
+config MTK_BQ24297_SUPPORT
+	bool "MTK_BQ24297_SUPPORT"
+	help
+	   add MTK_BQ24297_SUPPORT to ProjectConfig.mk default off
+
+config MTK_BQ25890_SUPPORT
+        bool "MTK_BQ25890_SUPPORT"
+        help
+           add MTK_BQ25890_SUPPORT to ProjectConfig.mk default off
+
+config MTK_BQ27541_SUPPORT
+	bool "MTK_BQ27541_SUPPORT"
+	help
+	  yes : support TI bq27541 external gauge IC
+
+config MTK_NCP1851_SUPPORT
+	bool "MTK_NCP1851_SUPPORT"
+	help
+	  Support NCP1851 external charger IC
+
+config MTK_DISABLE_POWER_ON_OFF_VOLTAGE_LIMITATION
+	bool "MTK_DISABLE_POWER_ON_OFF_VOLTAGE_LIMITATION"
+	help
+
+config MTK_KERNEL_POWER_OFF_CHARGING
+	bool "MTK_KERNEL_POWER_OFF_CHARGING"
+	help
+	   yes : support KPOC feature, power off charging would running by
+	   kernel and charging animation by IPO service. no: not support KPOC
+	   feature, and power off charging would running by lk.
+
+config MTK_BATTERY_PROTECT
+	bool "MTK_BATTERY_PROTECT"
+
+config MTK_BATTERY_THROTTLING
+	bool "MTK_BATTERY_THROTTLING"
+
+config MTK_ENABLE_AGING_ALGORITHM
+	bool "Enable MediaTek Battery Aging Algorithm"
+
+config MTK_BATTERY_LIFETIME_DATA_SUPPORT
+	bool "Enable Battery LifeTime Data Logging"
+
+config SOC_BY_EXT_HW_FG
+	bool "Use external fuel gauge"
+	default n
+
+config SOC_BY_HW_FG
+	bool "Use MediaTek H/W Fuel Gauge"
+	default n
+
+config SOC_BY_AUXADC
+	bool "Only use AUXADC for Fuel Gauge"
+	default n
+
+config SOC_BY_SW_FG
+	bool "Use MediaTek S/W Fuel Gauge"
+	default n
+
+config EXT_FG_HAS_SOC
+	bool "External fuel gauge supports SOC report"
+	default n
+
+config EXT_FG_HAS_TEMPERATURE
+	bool "External fuel gauge supports temperature report"
+	default n
+
+config SWCHR_POWER_PATH
+	bool "External charger IC supports powerpath"
+	default n
+
+config CUST_DISABLE_CAPACITY_OCV2CV_TRANSFORM
+	bool "Disable battery meter capacity OCV2CV transform"
+	default n
+
+config MTK_MULTI_BAT_PROFILE_SUPPORT
+	bool "Multi-battery profile support"
+	default n
+
+config MTK_GET_BATTERY_ID_BY_AUXADC
+	bool "Multi-battery profile support by auxadc"
+	default n
+
+config CUSTOM_BATTERY_CYCLE_AGING_DATA
+	bool "Custom battery aging data is provided"
+	default n
+
+config MTK_JEITA_STANDARD_SUPPORT
+	bool "JEITA standard support"
+	default n
+
+config BAT_LOW_TEMP_PROTECT_ENABLE
+	bool "Disable charging when low temperature"
+	default n
+
+config STOP_CHARGING_IN_TAKLING
+	bool "Hold charging in talking mode"
+	default n
+
+config CONFIG_DIS_CHECK_BATTERY
+	bool "No shutdown if battery is not detected"
+	default n
+
+config CONFIG_USB_IF
+	bool "USB IF support"
+	default n
+
+config HIGH_BATTERY_VOLTAGE_SUPPORT
+	bool "Support battery above 4.3V"
+	default n
+endif #POWER_SUPPLY
+
+config MTK_WIRELESS_CHARGER_SUPPORT
+	bool "MTK_WIRELESS_CHARGER_SUPPORT"
+	help
+	  yes : support wireless charger feature, it can show the wireless
+	  charging animation and charging icon when receive wireless charger
+	  plug-in. no: not support wireless charger feature, stay with
+	  legancy feature, which cannot sense the exist of the wireles
+	  charger.
+#
+# add for power loss test
+#
+menuconfig PWR_LOSS_MTK_TEST
+	tristate "Power Loss Test"
+	default n
+	help
+	  Say Y here if you want do Power loss test for NAND Or EMMC
+	  If unsure, say N.
+
+if PWR_LOSS_MTK_TEST
+config PWR_LOSS_MTK_DEBUG
+	bool "Debugging"
+	help
+	  Say Y here if you want turns on low-level debugging
+	  If unsure, say N.
+endif
+
+config MTK_THERMAL_PA_VIA_ATCMD
+	bool "MTK_THERMAL_PA_VIA_ATCMD"
+	help
+	  Internal switch for thermal management to query modem RF
+	  temperature via AT command.
+
+endmenu

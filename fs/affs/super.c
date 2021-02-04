@@ -543,9 +543,13 @@ affs_remount(struct super_block *sb, int *flags, char *data)
 	int			 root_block;
 	unsigned long		 mount_flags;
 	int			 res = 0;
-	char			*new_opts = kstrdup(data, GFP_KERNEL);
+	char			*new_opts;
 	char			 volume[32];
 	char			*prefix = NULL;
+
+	new_opts = kstrdup(data, GFP_KERNEL);
+	if (!new_opts)
+		return -ENOMEM;
 
 	pr_debug("AFFS: remount(flags=0x%x,opts=\"%s\")\n",*flags,data);
 

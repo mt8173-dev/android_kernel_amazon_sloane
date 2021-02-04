@@ -1,0 +1,26 @@
+
+choice
+	prompt "MT8173 ASOC platform"
+
+config SND_SOC_MT8173_GENERIC
+	bool "MT8173 GENERIC"
+	help
+	  Say Y if you want to use the default
+	  Mediatek SoC Audio interfaces for MT8173.
+	  It is the generic solution.
+
+config SND_SOC_MT8173_BLOFELD
+	bool "MT8173 Blofeld"
+	select SND_SOC_MAX97236
+	help
+	  Say Y if you want to use the Lab126 Blofeld
+	  Audio interfaces for MT8173.
+	  It will also add codec support of MAX97236
+
+config SND_SOC_MT8173_SLOANE
+	bool "MT8173 Sloane"
+	help
+	  Say Y if you want to use the Lab126 Sloane
+	  Audio interfaces for MT8173.
+
+endchoice

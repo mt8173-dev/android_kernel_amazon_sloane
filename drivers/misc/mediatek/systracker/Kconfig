@@ -1,0 +1,8 @@
+config MTK_SYSTRACKER
+	bool "Enable MTK System Tracker Debugger"
+	default n
+	help
+	  SYSTRACKER is a hardware debugger to record timeout transaction and trigger SLV_ERR or interrupt to notify CPU.
+	  Driver entry is located at /sys/bus/platform/drivers/systracker .
+	  Use cat tracker_entry_dump to dump currect status.
+	  The status will not be reset after watchdog reboot.

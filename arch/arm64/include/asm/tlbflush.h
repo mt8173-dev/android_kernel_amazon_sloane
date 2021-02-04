@@ -99,10 +99,27 @@ static inline void flush_tlb_page(struct vm_area_struct *vma,
 }
 
 /*
- * Convert calls to our calling convention.
+ * This is meant to avoid soft lock-ups on large TLB flushing ranges and not
+ * necessarily a performance improvement.
  */
-#define flush_tlb_range(vma,start,end)	__cpu_flush_user_tlb_range(start,end,vma)
-#define flush_tlb_kernel_range(s,e)	__cpu_flush_kern_tlb_range(s,e)
+#define MAX_TLB_RANGE	(1024UL << PAGE_SHIFT)
+
+static inline void flush_tlb_range(struct vm_area_struct *vma,
+				   unsigned long start, unsigned long end)
+{
+	if ((end - start) <= MAX_TLB_RANGE)
+		__cpu_flush_user_tlb_range(start, end, vma);
+	else
+		flush_tlb_mm(vma->vm_mm);
+}
+
+static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end)
+{
+	if ((end - start) <= MAX_TLB_RANGE)
+		__cpu_flush_kern_tlb_range(start, end);
+	else
+		flush_tlb_all();
+}
 
 /*
  * On AArch64, the cache coherency is handled via the set_pte_at() function.

@@ -1,0 +1,6 @@
+#ifndef _NT35521_WXGA_DSI_VDO_HH060IA_
+#define _NT35521_WXGA_DSI_VDO_HH060IA_
+
+extern LCM_DRIVER nt35521_wxga_dsi_vdo_hh060ia_lcm_drv;
+
+#endif

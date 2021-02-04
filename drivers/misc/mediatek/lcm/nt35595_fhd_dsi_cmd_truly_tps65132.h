@@ -1,0 +1,6 @@
+#ifndef _NT35595_FHD_DSI_CMD_TRULY_TPS65132_
+#define _NT35595_FHD_DSI_CMD_TRULY_TPS65132_
+
+extern LCM_DRIVER nt35595_fhd_dsi_cmd_truly_tps65132_lcm_drv;
+
+#endif

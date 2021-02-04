@@ -301,6 +301,7 @@ struct compat_sysctl_args;
 struct compat_kexec_segment;
 struct compat_mq_attr;
 struct compat_msgbuf;
+struct compat_trapz_info;
 
 extern void compat_exit_robust_list(struct task_struct *curr);
 
@@ -642,6 +643,9 @@ asmlinkage ssize_t compat_sys_mq_timedreceive(mqd_t mqdes,
 			const struct compat_timespec __user *u_abs_timeout);
 asmlinkage long compat_sys_socketcall(int call, u32 __user *args);
 asmlinkage long compat_sys_sysctl(struct compat_sysctl_args __user *args);
+asmlinkage long compat_sys_trapz(unsigned int ctrl, unsigned int extra1,
+			unsigned int extra2, unsigned int extra3, unsigned int extra4,
+			struct compat_trapz_info __user *ti);
 
 extern ssize_t compat_rw_copy_check_uvector(int type,
 		const struct compat_iovec __user *uvector,

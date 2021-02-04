@@ -121,7 +121,7 @@ struct snd_usb_substream {
 	unsigned int fmt_type;		/* USB audio format type (1-3) */
 	unsigned int pkt_offset_adj;	/* Bytes to drop from beginning of packets (for non-compliant devices) */
 
-	unsigned int running: 1;	/* running status */
+	unsigned int running:1;	/* running status */
 
 	unsigned int hwptr_done;	/* processed byte position in the buffer */
 	unsigned int transfer_done;		/* processed frames since last period update */
@@ -158,5 +158,8 @@ struct snd_usb_stream {
 	struct snd_usb_substream substream[2];
 	struct list_head list;
 };
+
+extern struct switch_dev snd_dev_mic;
+extern struct switch_dev snd_dev_spk;
 
 #endif /* __USBAUDIO_CARD_H */

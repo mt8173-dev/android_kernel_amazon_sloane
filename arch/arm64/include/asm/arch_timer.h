@@ -106,7 +106,11 @@ static inline void __cpuinit arch_counter_set_user_access(void)
 	cntkctl &= ~((3 << 8) | (1 << 0));
 
 	/* Enable user access to the virtual counter and frequency. */
-	cntkctl |= (1 << 1);
+	if (IS_ENABLED(CONFIG_ARM_ARCH_TIMER_VCT_ACCESS))
+		cntkctl |= (1 << 1);
+	else
+		cntkctl &= ~(1 << 1);
+
 	asm volatile("msr	cntkctl_el1, %0" : : "r" (cntkctl));
 }
 

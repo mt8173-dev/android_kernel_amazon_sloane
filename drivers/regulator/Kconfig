@@ -514,5 +514,20 @@ config REGULATOR_AS3711
 	  This driver provides support for the voltage regulators on the
 	  AS3711 PMIC
 
+config REGULATOR_MT6397
+	tristate "MediaTek MT6397 PMIC"
+	depends on MFD_MT6397
+	help
+	   This driver provides support for the voltage regulators on the MediaTek MT6397 PMIC.
+
+config REGULATOR_DA9212
+	tristate "Dialog Semiconductor DA9212 regulator"
+	depends on I2C
+	help
+	  Say y here to support for the Dialog Semiconductor DA9212.
+	  The DA9212 is a multi-phase synchronous step down
+	  converter 12A DC-DC Buck controlled through an I2C
+	  interface.
+ 
 endif
 

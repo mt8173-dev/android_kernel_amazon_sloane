@@ -457,6 +457,8 @@ struct hid_device {							/* device report descriptor */
 	__u32 version;							/* HID version */
 	enum hid_type type;						/* device type (mouse, kbd, ...) */
 	unsigned country;						/* HID country */
+	__s32 battery_level;	/* normalized battery value */
+	__s32 received_battery_level;	/* received battery value */
 	struct hid_report_enum report_enum[HID_REPORT_TYPES];
 
 	struct semaphore driver_lock;					/* protects the current driver, except during input */
@@ -474,6 +476,7 @@ struct hid_device {							/* device report descriptor */
 	struct power_supply battery;
 	__s32 battery_min;
 	__s32 battery_max;
+	__s32 battery_val;
 	__s32 battery_report_type;
 	__s32 battery_report_id;
 #endif
@@ -649,8 +652,8 @@ struct hid_driver {
 	int (*input_mapped)(struct hid_device *hdev,
 			struct hid_input *hidinput, struct hid_field *field,
 			struct hid_usage *usage, unsigned long **bit, int *max);
-	void (*input_configured)(struct hid_device *hdev,
-				 struct hid_input *hidinput);
+	int (*input_configured)(struct hid_device *hdev,
+				struct hid_input *hidinput);
 	void (*feature_mapping)(struct hid_device *hdev,
 			struct hid_field *field,
 			struct hid_usage *usage);
@@ -696,6 +699,8 @@ struct hid_ll_driver {
 	int (*wait)(struct hid_device *hdev);
 	int (*idle)(struct hid_device *hdev, int report, int idle, int reqtype);
 
+	void (*battery_level_ind) (struct hid_device *hdev,
+			unsigned int battery_level);
 };
 
 #define	PM_HINT_FULLON	1<<5

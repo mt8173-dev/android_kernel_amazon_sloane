@@ -5,6 +5,11 @@
 #include <linux/rcupdate.h>
 #include <linux/vmalloc.h>
 #include <linux/reboot.h>
+/*******************************************************************************
+* CPU Hotplug debug mechanism                                                  *
+*******************************************************************************/
+#include <linux/mtk_ram_console.h>
+/******************************************************************************/
 
 /*
  *	Notifier list for kernel code which wants to be called
@@ -77,6 +82,13 @@ static int __kprobes notifier_call_chain(struct notifier_block **nl,
 {
 	int ret = NOTIFY_DONE;
 	struct notifier_block *nb, *next_nb;
+/*******************************************************************************
+* CPU Hotplug debug mechanism                                                  *
+*******************************************************************************/
+#if defined(CONFIG_SMP) && (defined(MTK_CPU_HOTPLUG_DEBUG_1) || defined(MTK_CPU_HOTPLUG_DEBUG_2))
+	int index = 0;
+#endif /* #if defined(CONFIG_SMP) && (defined(MTK_CPU_HOTPLUG_DEBUG_1) || defined(MTK_CPU_HOTPLUG_DEBUG_2)) */
+/******************************************************************************/
 
 	nb = rcu_dereference_raw(*nl);
 
@@ -90,6 +102,23 @@ static int __kprobes notifier_call_chain(struct notifier_block **nl,
 			continue;
 		}
 #endif
+
+/*******************************************************************************
+* CPU Hotplug debug mechanism                                                  *
+*******************************************************************************/
+#if defined(CONFIG_SMP) && (defined(MTK_CPU_HOTPLUG_DEBUG_1) || defined(MTK_CPU_HOTPLUG_DEBUG_2))
+		if (nl == &cpu_chain.head) {
+		#if defined(MTK_CPU_HOTPLUG_DEBUG_1)
+			pr_warn("[cpu_ntf] %02lx_%02d, %p\n", val, index, nb->notifier_call);
+		#endif /* #if defined(MTK_CPU_HOTPLUG_DEBUG_1) */
+		#if defined(MTK_CPU_HOTPLUG_DEBUG_2)
+			/* aee_rr_rec_hotplug(0, val & 0xff, index & 0xff, (unsigned long)nb->notifier_call); */
+		#endif /* #if defined(MTK_CPU_HOTPLUG_DEBUG_2) */
+			++index;
+		}
+#endif /* #if defined(CONFIG_SMP) && (defined(MTK_CPU_HOTPLUG_DEBUG_1) || defined(MTK_CPU_HOTPLUG_DEBUG_2)) */
+/******************************************************************************/
+
 		ret = nb->notifier_call(nb, val, v);
 
 		if (nr_calls)
@@ -100,6 +129,21 @@ static int __kprobes notifier_call_chain(struct notifier_block **nl,
 		nb = next_nb;
 		nr_to_call--;
 	}
+/*******************************************************************************
+* CPU Hotplug debug mechanism                                                  *
+*******************************************************************************/
+#if defined(CONFIG_SMP) && (defined(MTK_CPU_HOTPLUG_DEBUG_1) || defined(MTK_CPU_HOTPLUG_DEBUG_2))
+	if (nl == &cpu_chain.head) {
+	#if defined(MTK_CPU_HOTPLUG_DEBUG_1)
+		pr_warn("[cpu_ntf] %02lx_%02d, %p\n", val, index, 0);
+	#endif /* #if defined(MTK_CPU_HOTPLUG_DEBUG_1) */
+	#if defined(MTK_CPU_HOTPLUG_DEBUG_2)
+		/* aee_rr_rec_hoplug(0, val & 0xff, index & 0xff); */
+		/* aee_rr_rec_hotplug(0, val & 0xff, index & 0xff, 0); */
+	#endif /* #if defined(MTK_CPU_HOTPLUG_DEBUG_2) */
+	}
+#endif /* #if defined(CONFIG_SMP) && (defined(MTK_CPU_HOTPLUG_DEBUG_1) || defined(MTK_CPU_HOTPLUG_DEBUG_2)) */
+/******************************************************************************/
 	return ret;
 }
 

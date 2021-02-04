@@ -1855,12 +1855,16 @@ static int __init kmemleak_late_init(void)
 				     &kmemleak_fops);
 	if (!dentry)
 		pr_warning("Failed to create the debugfs kmemleak file\n");
+
+#ifdef CONFIG_DEBUG_KMEMLEAK_SCAN_DEFAULT_OFF
+	pr_info("Kernel memory leak detector initialized with scan off\n");
+#else
 	mutex_lock(&scan_mutex);
 	start_scan_thread();
 	mutex_unlock(&scan_mutex);
 
 	pr_info("Kernel memory leak detector initialized\n");
-
+#endif
 	return 0;
 }
 late_initcall(kmemleak_late_init);

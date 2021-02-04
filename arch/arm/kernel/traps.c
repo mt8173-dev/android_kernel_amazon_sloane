@@ -35,6 +35,8 @@
 #include <asm/tls.h>
 #include <asm/system_misc.h>
 
+#include <linux/aee.h>
+
 static const char *handler[]= {
 	"prefetch abort",
 	"data abort",
@@ -169,6 +171,15 @@ static void dump_instr(const char *lvl, struct pt_regs *regs)
 #ifdef CONFIG_ARM_UNWIND
 static inline void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 {
+	int index = 0;
+
+	index = device_get_suspend_index();
+	if (index > 0)
+		aee_sram_printk("S(%d)\n", (index - 1));
+	index = device_get_resume_index();
+	if (index > 0)
+		aee_sram_printk("R(%d)\n", (index - 1));
+
 	unwind_backtrace(regs, tsk);
 }
 #else
@@ -176,6 +187,14 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 {
 	unsigned int fp, mode;
 	int ok = 1;
+	int index = 0;
+
+	index = device_get_suspend_index();
+	if (index > 0)
+		aee_sram_printk("S(%d)\n", (index - 1));
+	index = device_get_resume_index();
+	if (index > 0)
+		aee_sram_printk("R(%d)\n", (index - 1));
 
 	printk("Backtrace: ");
 
@@ -208,6 +227,13 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 }
 #endif
 
+void dump_stack(void)
+{
+	dump_backtrace(NULL, NULL);
+}
+
+EXPORT_SYMBOL(dump_stack);
+
 void show_stack(struct task_struct *tsk, unsigned long *sp)
 {
 	dump_backtrace(NULL, tsk);
@@ -236,13 +262,16 @@ static int __die(const char *str, int err, struct pt_regs *regs)
 	static int die_counter;
 	int ret;
 
+	ipanic_oops_start();
 	printk(KERN_EMERG "Internal error: %s: %x [#%d]" S_PREEMPT S_SMP
 	       S_ISA "\n", str, err, ++die_counter);
 
 	/* trap and error numbers are mostly meaningless on ARM */
 	ret = notify_die(DIE_OOPS, str, regs, err, tsk->thread.trap_no, SIGSEGV);
-	if (ret == NOTIFY_STOP)
+	if (ret == NOTIFY_STOP) {
+	        ipanic_oops_end();
 		return 1;
+	}
 
 	print_modules();
 	__show_regs(regs);
@@ -256,6 +285,7 @@ static int __die(const char *str, int err, struct pt_regs *regs)
 		dump_instr(KERN_EMERG, regs);
 	}
 
+	ipanic_oops_end();
 	return 0;
 }
 
@@ -401,9 +431,22 @@ static int call_undef_hook(struct pt_regs *regs, unsigned int instr)
 
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 {
+	struct thread_info *thread = current_thread_info();
+	int ret;
 	unsigned int instr;
 	siginfo_t info;
 	void __user *pc;
+
+	if (!user_mode(regs)) {
+		thread->cpu_excp++;
+		if (thread->cpu_excp == 1) {
+			thread->regs_on_excp = (void *)regs;
+			aee_excp_regs = (void *)regs;
+		}
+		if (thread->cpu_excp >= 2) {
+			aee_stop_nested_panic(regs);
+		}
+	}	
 
 	pc = (void __user *)instruction_pointer(regs);
 
@@ -432,8 +475,13 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 		goto die_sig;
 	}
 
-	if (call_undef_hook(regs, instr) == 0)
+	ret = call_undef_hook(regs, instr);
+	if (ret == 0) {
+		if (!user_mode(regs)) {
+			thread->cpu_excp--;
+		}	  
 		return;
+	}
 
 die_sig:
 #ifdef CONFIG_DEBUG_USER

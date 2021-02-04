@@ -19,6 +19,7 @@
 #include <linux/mutex.h>
 #include <linux/platform_data/leds-lp55xx.h>
 #include <linux/slab.h>
+#include <linux/of.h>
 
 #include "leds-lp55xx-common.h"
 
@@ -101,6 +102,147 @@
 #define LP5562_CMD_RUN			0x2A
 #define LP5562_CMD_DIRECT		0x3F
 #define LP5562_PATTERN_OFF		0
+
+#define DEBUG_TEST			0
+
+static const u8 mode_1[] = {
+	0x40, 0x00, 0x60, 0x00, 0x40, 0xFF, 0x60, 0x00,
+	};
+
+static const u8 mode_2[] = { 0x40, 0xFF, };
+
+#if DEBUG_TEST
+/*THIS IS A TEST MODE. WILL REMOVE THIS WHEN WE FINALISE ON BREATHE MODE*/
+static const u8 mode_test[] = {
+/*
+ * set_pwm 10, wait for 260 ms
+ * loop 31 times taking 3 steps at time with each steptime = 30 ms. 31 * 30ms = 930ms
+ * loop 29 times taking 6 steps at time with each steptime = 30ms . 29 * 30ms = 870ms
+ * Reverse the above three steps
+ */
+		0x40, 0x0A,
+		0x51, 0x00,
+		0x01, 0x03,
+		0x42, 0x00,
+		0xAF, 0x82,
+		0x01, 0x06,
+		0x42, 0x00,
+		0xAE, 0x85,
+		0x42, 0x00,
+		0x01, 0x86,
+		0xAA, 0x88,
+		0x42, 0x00,
+		0x01, 0x83,
+		0xAA, 0x0B,
+		0x51, 0x00,
+		0x40, 0x0A,
+
+
+/*
+ * go to step-10 wait for 270 ms, then go tot step 13 wait for 150ms
+ * Now take steps of 3 wait for 30 ms. loop for 20 times
+ * Now take stes of 1 for every 30 ms.
+ * Reverse the above steps.
+ */
+
+		0x01, 0x0A,
+		0x51, 0x00,
+		0x01, 0x03,
+		0x4A, 0x00,
+		0x01, 0x03,
+		0x42, 0x00,
+		0xAA, 0x04,
+		0x0A, 0x7f,
+		0x0A, 0xff,
+		0x42, 0x00,
+		0x01, 0x83,
+		0xAA, 0x09,
+		0x4A, 0x00,
+		0x01, 0x83,
+		0x51, 0x00,
+		0x01, 0x8A,
+
+	};
+#endif
+
+/*
+ * set_pwm 10, wait for 260 ms
+ * loop 31 times taking 3 steps at time with each steptime = 30 ms. 31 * 30ms = 930ms
+ * set up step to 255
+ * loop 29 times taking 6 steps at time with each steptime = 30ms . 29 * 30ms = 870ms
+ * Reverse the above three steps
+ */
+static const u8 mode_3[] = {
+		0x40, 0x0A, /* set pwm 10 */
+		0x51, 0x00, /* wait 270ms */
+		0x01, 0x03, /* loop 1: Ramp up 3 steps with .49ms step time */
+		0x42, 0x00, /* wait 30ms */
+		0xAF, 0x82, /* loop 1 for 31 times */
+		0x01, 0x06, /* loop 2: Ramp up 6 steps with .49ms step time */
+		0x42, 0x00, /* wait 30ms */
+		0xAE, 0x85, /* loop 2: for 29 times */
+		0x40, 0xFF, /* set pwm 255 */
+		0x42, 0x00, /* loop 3 :wait 30ms */
+		0x01, 0x86, /* Ramp down 6 steps with .49ms step time */
+		0xAA, 0x89, /* loop 3 : 21 times*/
+		0x42, 0x00, /* loop 4 : wait 30ms */
+		0x01, 0x83, /* Ramp down 3 steps with .49ms step time */
+		0xAA, 0x8C, /* loop 4: 21 times*/
+		0x51, 0x00, /* wait 270ms */
+};
+
+/*The algorithm is same as white expect the time is reduced to 7ms instead of 30ms*/
+static const u8 mode_4[] = {
+		0x40, 0x0A,
+		0x44, 0x00,
+		0x01, 0x03,
+		0x0E, 0x00,
+		0xAF, 0x82,
+		0x01, 0x06,
+		0x0E, 0x00,
+		0xAE, 0x85,
+		0x40, 0xFF,
+		0x0E, 0x00,
+		0x01, 0x86,
+		0xAA, 0x89,
+		0x0E, 0x00,
+		0x01, 0x83,
+		0xAA, 0x8C,
+		0x44, 0x00,
+};
+
+struct lp55xx_predef_pattern board_led_patterns[] = {
+/* white light blinking */
+	{
+	  .r = mode_1,
+	  .size_r = ARRAY_SIZE(mode_1),
+	},
+/* amber light blinking */
+	{
+	  .g = mode_1,
+	  .size_g = ARRAY_SIZE(mode_1),
+	},
+/* white light on */
+	{
+	  .r = mode_2,
+	  .size_r = ARRAY_SIZE(mode_2),
+	},
+/* amber light on */
+	{
+	  .g = mode_2,
+	  .size_g = ARRAY_SIZE(mode_2),
+	},
+/* white breathing */
+	{
+	  .r = mode_3,
+	  .size_r = ARRAY_SIZE(mode_3),
+	},
+/* amber breathing */
+	{
+	  .g = mode_4,
+	  .size_g = ARRAY_SIZE(mode_4),
+	},
+};
 
 static inline void lp5562_wait_opmode_done(void)
 {
@@ -346,9 +488,9 @@ static void lp5562_write_program_memory(struct lp55xx_chip *chip,
 /* check the size of program count */
 static inline bool _is_pc_overflow(struct lp55xx_predef_pattern *ptn)
 {
-	return (ptn->size_r >= LP5562_PROGRAM_LENGTH ||
-		ptn->size_g >= LP5562_PROGRAM_LENGTH ||
-		ptn->size_b >= LP5562_PROGRAM_LENGTH);
+	return  ptn->size_r > LP5562_PROGRAM_LENGTH ||
+		ptn->size_g > LP5562_PROGRAM_LENGTH ||
+		ptn->size_b > LP5562_PROGRAM_LENGTH;
 }
 
 static int lp5562_run_predef_led_pattern(struct lp55xx_chip *chip, int mode)
@@ -509,18 +651,69 @@ static struct lp55xx_device_config lp5562_cfg = {
 	.dev_attr_group     = &lp5562_group,
 };
 
+static int lp5562_of_get_pdata(struct device *dev, struct device_node *np)
+{
+	struct device_node *child;
+	struct lp55xx_platform_data *pdata;
+	struct lp55xx_led_config *cfg;
+	int num_channels;
+	int i = 0;
+
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata)
+		return -ENOMEM;
+
+	num_channels = of_get_child_count(np);
+	if (num_channels == 0) {
+		dev_err(dev, "no LED channels\n");
+		return -EINVAL;
+	}
+
+	cfg = devm_kzalloc(dev, sizeof(*cfg) * num_channels, GFP_KERNEL);
+	if (!cfg)
+		return -ENOMEM;
+
+	pdata->led_config = &cfg[0];
+	pdata->num_channels = num_channels;
+
+	for_each_child_of_node(np, child) {
+		cfg[i].chan_nr = i;
+		of_property_read_string(child, "chan-name", &cfg[i].name);
+		of_property_read_u8(child, "led-cur", &cfg[i].led_current);
+		of_property_read_u8(child, "max-cur", &cfg[i].max_current);
+		i++;
+	}
+
+	of_property_read_string(np, "label", &pdata->label);
+	of_property_read_u8(np, "clock-mode", &pdata->clock_mode);
+
+	pdata->patterns = board_led_patterns;
+	pdata->num_patterns = ARRAY_SIZE(board_led_patterns);
+	dev->platform_data = pdata;
+
+	return 0;
+}
+
 static int lp5562_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
 	int ret;
 	struct lp55xx_chip *chip;
 	struct lp55xx_led *led;
-	struct lp55xx_platform_data *pdata = client->dev.platform_data;
+	struct lp55xx_platform_data *pdata;
+	struct device_node *np = client->dev.of_node;
 
-	if (!pdata) {
-		dev_err(&client->dev, "no platform data\n");
-		return -EINVAL;
+	if (!client->dev.platform_data) {
+		if (np) {
+			ret = lp5562_of_get_pdata(&client->dev, np);
+			if (ret < 0)
+				return ret;
+		} else {
+			dev_err(&client->dev, "no platform data\n");
+			return -EINVAL;
+		}
 	}
+	pdata = client->dev.platform_data;
 
 	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
 	if (!chip)
@@ -579,6 +772,7 @@ static int lp5562_remove(struct i2c_client *client)
 
 static const struct i2c_device_id lp5562_id[] = {
 	{ "lp5562", 0 },
+	{ "ti,lp5562", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lp5562_id);

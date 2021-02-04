@@ -20,6 +20,7 @@
  *
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
+
 #include <linux/module.h>
 #include <linux/thermal.h>
 #include <linux/cpufreq.h>
@@ -50,15 +51,16 @@ struct cpufreq_cooling_device {
 	unsigned int cpufreq_state;
 	unsigned int cpufreq_val;
 	struct cpumask allowed_cpus;
+	struct cpufreq_cooling_device *notify_device;
+	struct notifier_block nb;
 };
+
 static DEFINE_IDR(cpufreq_idr);
 static DEFINE_MUTEX(cooling_cpufreq_lock);
 
 static unsigned int cpufreq_dev_count;
-
 /* notify_table passes value to the CPUFREQ_ADJUST callback function. */
 #define NOTIFY_INVALID NULL
-static struct cpufreq_cooling_device *notify_device;
 
 /**
  * get_idr - function to get a unique id.
@@ -258,6 +260,25 @@ static unsigned int get_cpu_frequency(unsigned int cpu, unsigned long level)
 }
 
 /**
+ * cpufreq_cooling_get_frequency - for a give cpu cooling state
+ * return the cpu freq.
+ * @cpu: cpu for which frequency is fetched.
+ * @level: cooling level
+ *
+ * This function matches cooling level with frequency. Based on a cooling level
+ * of frequency, equals cooling state of cpu cooling device, it will return
+ * the corresponding frequency.
+ *	e.g level=0 --> 1st MAX FREQ, level=1 ---> 2nd MAX FREQ, .... etc
+ *
+ * Return: 0 on error, the corresponding frequency otherwise.
+ */
+unsigned int cpufreq_cooling_get_frequency(unsigned int cpu, unsigned long level)
+{
+	return get_cpu_frequency(cpu, level);
+}
+EXPORT_SYMBOL_GPL(cpufreq_cooling_get_frequency);
+
+/**
  * cpufreq_apply_cooling - function to apply frequency clipping.
  * @cpufreq_device: cpufreq_cooling_device pointer containing frequency
  *	clipping data.
@@ -285,17 +306,16 @@ static int cpufreq_apply_cooling(struct cpufreq_cooling_device *cpufreq_device,
 	if (!clip_freq)
 		return -EINVAL;
 
-	cpufreq_device->cpufreq_state = cooling_state;
 	cpufreq_device->cpufreq_val = clip_freq;
-	notify_device = cpufreq_device;
+	cpufreq_device->notify_device = cpufreq_device;
 
 	for_each_cpu(cpuid, mask) {
 		if (is_cpufreq_valid(cpuid))
 			cpufreq_update_policy(cpuid);
 	}
 
-	notify_device = NOTIFY_INVALID;
-
+	cpufreq_device->cpufreq_state = cooling_state;
+	cpufreq_device->notify_device = NOTIFY_INVALID;
 	return 0;
 }
 
@@ -316,16 +336,24 @@ static int cpufreq_thermal_notifier(struct notifier_block *nb,
 {
 	struct cpufreq_policy *policy = data;
 	unsigned long max_freq = 0;
+	unsigned int cpufreq_state;
+	struct cpufreq_cooling_device *cpufreq_device, *notify_device;
+	cpufreq_device = container_of(nb, struct cpufreq_cooling_device, nb);
+	notify_device = cpufreq_device->notify_device;
 
-	if (event != CPUFREQ_ADJUST || notify_device == NOTIFY_INVALID)
+	if (event != CPUFREQ_ADJUST)
 		return 0;
 
-	if (cpumask_test_cpu(policy->cpu, &notify_device->allowed_cpus))
-		max_freq = notify_device->cpufreq_val;
+	if (cpumask_test_cpu(policy->cpu, &cpufreq_device->allowed_cpus))
+		max_freq = cpufreq_device->cpufreq_val;
+	else
+		return 0;
 
-	/* Never exceed user_policy.max */
-	if (max_freq > policy->user_policy.max)
-		max_freq = policy->user_policy.max;
+	/* Never exceed user_policy.max only when throthling */
+	cpufreq_state = cpufreq_cooling_get_level(policy->cpu, max_freq);
+	if (cpufreq_state > cpufreq_device->cpufreq_state)
+		if (max_freq > policy->user_policy.max)
+			max_freq = policy->user_policy.max;
 
 	if (policy->max != max_freq)
 		cpufreq_verify_within_limits(policy, 0, max_freq);
@@ -409,11 +437,6 @@ static struct thermal_cooling_device_ops const cpufreq_cooling_ops = {
 	.set_cur_state = cpufreq_set_cur_state,
 };
 
-/* Notifier for cpufreq policy change */
-static struct notifier_block thermal_cpufreq_notifier_block = {
-	.notifier_call = cpufreq_thermal_notifier,
-};
-
 /**
  * cpufreq_cooling_register - function to create cpufreq cooling device.
  * @clip_cpus: cpumask of cpus where the frequency constraints will happen.
@@ -434,6 +457,8 @@ cpufreq_cooling_register(const struct cpumask *clip_cpus)
 	char dev_name[THERMAL_NAME_LENGTH];
 	int ret = 0, i;
 	struct cpufreq_policy policy;
+	unsigned int clip_freq;
+	unsigned int cpu = cpumask_any(clip_cpus);
 
 	/* Verify that all the clip cpus have same freq_min, freq_max limit */
 	for_each_cpu(i, clip_cpus) {
@@ -474,12 +499,15 @@ cpufreq_cooling_register(const struct cpumask *clip_cpus)
 	}
 	cpufreq_dev->cool_dev = cool_dev;
 	cpufreq_dev->cpufreq_state = 0;
+	clip_freq = get_cpu_frequency(cpu, 0);
+	if (!clip_freq)
+		return ERR_PTR(-EINVAL);
+	cpufreq_dev->cpufreq_val = clip_freq;
 	mutex_lock(&cooling_cpufreq_lock);
 
-	/* Register the notifier for first cpufreq cooling device */
-	if (cpufreq_dev_count == 0)
-		cpufreq_register_notifier(&thermal_cpufreq_notifier_block,
-					  CPUFREQ_POLICY_NOTIFIER);
+	cpufreq_dev->nb.notifier_call = cpufreq_thermal_notifier;
+	cpufreq_register_notifier(&(cpufreq_dev->nb),
+				  CPUFREQ_POLICY_NOTIFIER);
 	cpufreq_dev_count++;
 
 	mutex_unlock(&cooling_cpufreq_lock);
@@ -503,7 +531,7 @@ void cpufreq_cooling_unregister(struct thermal_cooling_device *cdev)
 
 	/* Unregister the notifier for the last cpufreq cooling device */
 	if (cpufreq_dev_count == 0)
-		cpufreq_unregister_notifier(&thermal_cpufreq_notifier_block,
+		cpufreq_unregister_notifier(&(cpufreq_dev->nb),
 					    CPUFREQ_POLICY_NOTIFIER);
 	mutex_unlock(&cooling_cpufreq_lock);
 

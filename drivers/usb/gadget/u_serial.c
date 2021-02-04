@@ -30,6 +30,7 @@
 
 #include "u_serial.h"
 
+#define ACM_LOG "USB_ACM"
 
 /*
  * This component encapsulates the TTY layer glue needed to provide basic
@@ -82,6 +83,7 @@
  */
 #define QUEUE_SIZE		16
 #define WRITE_BUF_SIZE		8192		/* TX only */
+#define REQ_BUF_SIZE		4096
 
 /* circular buffer */
 struct gs_buf {
@@ -89,8 +91,20 @@ struct gs_buf {
 	char			*buf_buf;
 	char			*buf_get;
 	char			*buf_put;
+  unsigned  isFull;
 };
 
+struct UDVT_PORT_T{
+  spinlock_t port_lock;
+  bool			openclose;	/* open/close in progress */
+  struct gserial		*port_usb;
+  struct list_head read_pool;
+  struct list_head read_queue;
+  struct gs_buf   port_read_buf;
+  struct list_head write_pool;
+  struct gs_buf   port_write_buf;
+};
+struct UDVT_PORT_T   UDVT_Port;
 /*
  * The port structure holds info for each port, one for each minor number
  * (and thus for each /dev/ node).
@@ -100,11 +114,18 @@ struct gs_port {
 	spinlock_t		port_lock;	/* guard port_* access */
 
 	struct gserial		*port_usb;
+	struct tty_struct	*port_tty;
 
+	unsigned		open_count;
 	bool			openclose;	/* open/close in progress */
 	u8			port_num;
 
+	wait_queue_head_t	close_wait;	/* wait for last close */
+  int *directCompleteSem;
 	struct list_head	read_pool;
+struct gs_buf		port_read_buf;
+  struct gs_buf   port_read_direct;
+  struct gs_buf  *port_Active_read_buf_p;
 	int read_started;
 	int read_allocated;
 	struct list_head	read_queue;
@@ -115,6 +136,8 @@ struct gs_port {
 	int write_started;
 	int write_allocated;
 	struct gs_buf		port_write_buf;
+  struct gs_buf   port_write_direct;
+  struct gs_buf  *port_Active_write_buf_p;
 	wait_queue_head_t	drain_wait;	/* wait while writes drain */
 
 	/* REVISIT this state ... */
@@ -160,7 +183,7 @@ static int gs_buf_alloc(struct gs_buf *gb, unsigned size)
 	gb->buf_size = size;
 	gb->buf_put = gb->buf_buf;
 	gb->buf_get = gb->buf_buf;
-
+  gb->isFull = 0;
 	return 0;
 }
 
@@ -343,7 +366,6 @@ gs_send_packet(struct gs_port *port, char *packet, unsigned size)
 		size = gs_buf_get(&port->port_write_buf, packet, size);
 	return size;
 }
-
 /*
  * gs_start_tx
  *
@@ -365,6 +387,8 @@ __acquires(&port->port_lock)
 	struct usb_ep		*in = port->port_usb->in;
 	int			status = 0;
 	bool			do_tty_wake = false;
+	static unsigned int	skip;
+	static DEFINE_RATELIMIT_STATE(ratelimit, 1 * HZ, 10);
 
 	while (!list_empty(pool)) {
 		struct usb_request	*req;
@@ -374,7 +398,7 @@ __acquires(&port->port_lock)
 			break;
 
 		req = list_entry(pool->next, struct usb_request, list);
-		len = gs_send_packet(port, req->buf, in->maxpacket);
+		len = gs_send_packet(port, req->buf, REQ_BUF_SIZE);
 		if (len == 0) {
 			wake_up_interruptible(&port->drain_wait);
 			break;
@@ -388,6 +412,18 @@ __acquires(&port->port_lock)
 		pr_vdebug(PREFIX "%d: tx len=%d, 0x%02x 0x%02x 0x%02x ...\n",
 				port->port_num, len, *((u8 *)req->buf),
 				*((u8 *)req->buf+1), *((u8 *)req->buf+2));
+
+		if (__ratelimit(&ratelimit)) {
+			printk(ACM_LOG \
+				"%s: ttyGS%d: tx len=%d, 0x%02x 0x%02x 0x%02x ...\n", \
+				__func__, port->port_num, len, *((u8 *)req->buf), \
+				*((u8 *)req->buf+1), *((u8 *)req->buf+2));
+			if (skip > 0) {
+				printk(ACM_LOG "%s Too many data, skipped %d bytes", __func__, skip);
+				skip = 0;
+			}
+		} else
+			skip += req->actual;
 
 		/* Drop lock while we call out of driver; completions
 		 * could be issued while we do so.  Disconnection may
@@ -480,6 +516,32 @@ __acquires(&port->port_lock)
  * So QUEUE_SIZE packets plus however many the FIFO holds (usually two)
  * can be buffered before the TTY layer's buffers (currently 64 KB).
  */
+unsigned long UDVT_IsDirectWriteComplete(int portn)
+{
+  struct gs_port	*port;
+  unsigned long	flags;
+  port = ports[portn].port;
+	spin_lock_irqsave(&port->port_lock, flags);
+	if (port->port_usb) {
+		pr_vdebug(PREFIX "%d: unthrottle\n", port->port_num);
+	}
+	spin_unlock_irqrestore(&port->port_lock, flags); 
+  return *port->directCompleteSem;
+}
+EXPORT_SYMBOL(UDVT_IsDirectWriteComplete);
+unsigned long UDVT_IsDirectReadComplete(int portn)
+{
+  struct gs_port	*port;
+  unsigned long	flags;
+  port = ports[portn].port;
+	spin_lock_irqsave(&port->port_lock, flags);
+	if (port->port_usb) {
+		pr_vdebug(PREFIX "%d: unthrottle\n", port->port_num);
+	}
+	spin_unlock_irqrestore(&port->port_lock, flags); 
+  return *port->directCompleteSem;
+}
+EXPORT_SYMBOL(UDVT_IsDirectReadComplete);
 static void gs_rx_push(unsigned long _port)
 {
 	struct gs_port		*port = (void *)_port;
@@ -487,6 +549,8 @@ static void gs_rx_push(unsigned long _port)
 	struct list_head	*queue = &port->read_queue;
 	bool			disconnect = false;
 	bool			do_push = false;
+	static unsigned int	skip;
+	static DEFINE_RATELIMIT_STATE(ratelimit, 1 * HZ, 10);
 
 	/* hand any queued data to the tty */
 	spin_lock_irq(&port->port_lock);
@@ -515,6 +579,18 @@ static void gs_rx_push(unsigned long _port)
 			/* normal completion */
 			break;
 		}
+
+		if (__ratelimit(&ratelimit)) {
+			printk(ACM_LOG \
+				"%s: ttyGS%d: actual=%d, n_read=%d 0x%02x 0x%02x 0x%02x ...\n", \
+				__func__, port->port_num, req->actual, port->n_read,
+				*((u8 *)req->buf), *((u8 *)req->buf+1), *((u8 *)req->buf+2));
+			if (skip > 0) {
+				printk(ACM_LOG "%s Too many data, skipped %d bytes", __func__, skip);
+				skip = 0;
+			}
+		} else
+			skip += req->actual;
 
 		/* push data to (open) tty */
 		if (req->actual) {
@@ -647,7 +723,7 @@ static int gs_alloc_requests(struct usb_ep *ep, struct list_head *head,
 	 * be as speedy as we might otherwise be.
 	 */
 	for (i = 0; i < n; i++) {
-		req = gs_alloc_req(ep, ep->maxpacket, GFP_ATOMIC);
+		req = gs_alloc_req(ep, REQ_BUF_SIZE, GFP_ATOMIC);
 		if (!req)
 			return list_empty(head) ? -ENOMEM : 0;
 		req->complete = fn;
@@ -718,6 +794,139 @@ static int gs_start_io(struct gs_port *port)
  * That link is broken *only* by TTY close(), and all driver methods
  * know that.
  */
+
+ 
+int UDVT_open(int portn)
+{
+	int		port_num = portn;
+	struct gs_port	*port;
+	int		status;
+
+	if (port_num < 0 || port_num >= 1)
+		return -ENXIO;
+
+	do {
+		mutex_lock(&ports[port_num].lock);
+		port = ports[port_num].port;
+		if (!port)
+			status = -ENODEV;
+		else {
+			spin_lock_irq(&port->port_lock);
+
+			/* already open?  Great. */
+			if (port->port.count) {
+				status = 0;
+				port->port.count++;
+
+			/* currently opening/closing? wait ... */
+			} else if (port->openclose) {
+				status = -EBUSY;
+
+			/* ... else we do the work */
+			} else {
+				status = -EAGAIN;
+				port->openclose = true;
+			}
+			spin_unlock_irq(&port->port_lock);
+		}
+		mutex_unlock(&ports[port_num].lock);
+
+		switch (status) {
+		default:
+			/* fully handled */
+			return status;
+		case -EAGAIN:
+			/* must do the work */
+			break;
+		case -EBUSY:
+			/* wait for EAGAIN task to finish */
+			msleep(1);
+			/* REVISIT could have a waitchannel here, if
+			 * concurrent open performance is important
+			 */
+			break;
+		}
+	} while (status != -EAGAIN);
+
+	/* Do the "real open" */
+	spin_lock_irq(&port->port_lock);
+
+	/* allocate circular buffer on first open */
+	if (port->port_write_buf.buf_buf == NULL) {
+
+		spin_unlock_irq(&port->port_lock);
+		status = gs_buf_alloc(&port->port_write_buf, WRITE_BUF_SIZE);
+		spin_lock_irq(&port->port_lock);
+
+		if (status) {
+//			pr_debug("gs_open: ttyGS%d (%p,%p) no buffer\n",port->port_num, tty, file);
+			port->openclose = false;
+			goto exit_unlock_port;
+		}
+	}
+
+
+  if (port->port_read_buf.buf_buf == NULL) 
+  {
+
+		spin_unlock_irq(&port->port_lock);
+		status = gs_buf_alloc(&port->port_read_buf, WRITE_BUF_SIZE);
+		spin_lock_irq(&port->port_lock);
+
+		if (status) 
+    {
+	//		pr_debug("gs_open: ttyGS%d (%p,%p) no buffer\n",port->port_num, tty, file);
+			port->openclose = false;
+			goto exit_unlock_port;
+		}
+	}
+
+
+  port->port_Active_read_buf_p = &port->port_read_buf;
+  port->port_Active_write_buf_p = &port->port_write_buf;
+  port->port_read_direct.buf_size = 0;
+
+	/* REVISIT if REMOVED (ports[].port NULL), abort the open
+	 * to let rmmod work faster (but this way isn't wrong).
+	 */
+
+	/* REVISIT maybe wait for "carrier detect" */
+
+	//tty->driver_data = port;
+	//port->port_tty = tty;
+
+	port->port.count = 1;
+	port->openclose = false;
+
+	/* low_latency means ldiscs work in tasklet context, without
+	 * needing a workqueue schedule ... easier to keep up.
+	 */
+	//tty->low_latency = 1;
+
+	/* if connected, start the I/O stream */
+	if (port->port_usb) {
+		struct gserial	*gser = port->port_usb;
+
+		//pr_debug("gs_open: start ttyGS%d\n", port->port_num);
+		//printk("gs_open: start ttyGS%d\n", port->port_num);
+		gs_start_io(port);
+
+		if (gser->connect)
+			gser->connect(gser);
+	}
+
+//	pr_debug("gs_open: ttyGS%d (%p,%p)\n", port->port_num, tty, file);
+
+	status = 0;
+
+exit_unlock_port:
+	spin_unlock_irq(&port->port_lock);
+	return status;  
+}
+
+EXPORT_SYMBOL(UDVT_open);
+
+
 static int gs_open(struct tty_struct *tty, struct file *file)
 {
 	int		port_num = tty->index;
@@ -810,6 +1019,9 @@ static int gs_open(struct tty_struct *tty, struct file *file)
 
 	pr_debug("gs_open: ttyGS%d (%p,%p)\n", port->port_num, tty, file);
 
+	printk(ACM_LOG \
+		"gs_open: ttyGS%d (%p,%p)\n", port->port_num, tty, file);
+
 	status = 0;
 
 exit_unlock_port:
@@ -845,6 +1057,9 @@ static void gs_close(struct tty_struct *tty, struct file *file)
 	}
 
 	pr_debug("gs_close: ttyGS%d (%p,%p) ...\n", port->port_num, tty, file);
+
+	printk(ACM_LOG \
+		"gs_close: ttyGS%d (%p,%p) ...\n", port->port_num, tty, file);
 
 	/* mark port as closing but in use; we can drop port lock
 	 * and sleep if necessary
@@ -895,6 +1110,12 @@ static int gs_write(struct tty_struct *tty, const unsigned char *buf, int count)
 	struct gs_port	*port = tty->driver_data;
 	unsigned long	flags;
 	int		status;
+	/* ALPS00423739 */
+	if (!port) {
+		printk("ERROR!!! port is closed!! %s, line %d: port = %p\n", __func__, __LINE__, port);
+		/*abort immediately after disconnect */
+		return -EINVAL;
+	}
 
 	pr_vdebug("gs_write: ttyGS%d (%p) writing %d bytes\n",
 			port->port_num, tty, count);
@@ -916,6 +1137,13 @@ static int gs_put_char(struct tty_struct *tty, unsigned char ch)
 	unsigned long	flags;
 	int		status;
 
+	/* ALPS00423739 */
+	if (!port) {
+		printk("ERROR!!! port is closed!! %s, line %d: port = %p\n", __func__, __LINE__, port);
+		/*abort immediately after disconnect */
+		return -EINVAL;
+	}
+
 	pr_vdebug("gs_put_char: (%d,%p) char=0x%x, called from %pf\n",
 		port->port_num, tty, ch, __builtin_return_address(0));
 
@@ -925,11 +1153,96 @@ static int gs_put_char(struct tty_struct *tty, unsigned char ch)
 
 	return status;
 }
+int UDVT_Buffed_Write(int portn, const unsigned char *buf, int count)
+{
+	struct gs_port	*port;
+	unsigned long	flags;
+	int		status;
+  port = ports[portn].port;
+	pr_vdebug("UDVT_Buffed_Write: ttyGS%d () writing %d bytes\n",port->port_num, count);
+	spin_lock_irqsave(&port->port_lock, flags);
+	if (count)
+		count = gs_buf_put(&port->port_write_buf, buf, count);
+	if (port->port_usb)
+		status = gs_start_tx(port);
+	spin_unlock_irqrestore(&port->port_lock, flags);
+	return count;  
+}
+EXPORT_SYMBOL(UDVT_Buffed_Write);
+int UDVT_Buffed_Read(int portn, unsigned char *buf, int count)
+{
+	struct gs_port	*port;
+	unsigned long	flags;
+  port = ports[portn].port;
+	pr_vdebug("UDVT_Buffed_Read: ttyGS%d () writing %d bytes\n",port->port_num, count);
+	spin_lock_irqsave(&port->port_lock, flags);
+	if (count)
+		count = gs_buf_get(&port->port_read_buf, buf, count);
+	if(count)
+    {   
+	    //printk("UDVT_Buffed_Read:count =%d,packet = 0x%x,0x%x,0x%x,0x%x,0x%x,0x%x",count,((&port->port_read_buf)->buf_buf)[0],((&port->port_read_buf)->buf_buf)[1],((&port->port_read_buf)->buf_buf)[2],((&port->port_read_buf)->buf_buf)[3],((&port->port_read_buf)->buf_buf)[4],((&port->port_read_buf)->buf_buf)[5]);
+    }
+    spin_unlock_irqrestore(&port->port_lock, flags);
+	return count;  
+}
+EXPORT_SYMBOL(UDVT_Buffed_Read);
+int UDVT_Direct_Write(int portn, unsigned char *buf, int count,int *completesem)
+{
+  struct gs_port	*port;
+	int		status;
+  unsigned long	flags;
+  port = ports[portn].port;
+	pr_vdebug("UDVT_Direct_Write: ttyGS%d () writing %d bytes\n",port->port_num, count);
+	spin_lock_irqsave(&port->port_lock, flags);
+	if (count > 0)
+	{
+    port->directCompleteSem = completesem;
+    port->port_write_direct.buf_buf = buf;
+    port->port_write_direct.buf_get = buf;
+    port->port_write_direct.buf_put = buf;
+    port->port_write_direct.isFull = 1;
+    port->port_write_direct.buf_size = count;
+    port->port_Active_write_buf_p = &port->port_write_direct;
+	}
+	if (port->port_usb)
+			status = gs_start_tx(port);		
+	spin_unlock_irqrestore(&port->port_lock, flags);
+  return count;
+}
+EXPORT_SYMBOL(UDVT_Direct_Write);
+int UDVT_Direct_Read(int portn, unsigned char *buf, int count,int *completesem)
+{
+  struct gs_port	*port;
+  unsigned long	flags;
+  port = ports[portn].port;
+	pr_vdebug("UDVT_Direct_Read: ttyGS%d () writing %d bytes\n",port->port_num, count);
+	spin_lock_irqsave(&port->port_lock, flags);
+	if (count > 0)
+	{
+    port->directCompleteSem = completesem;
+    port->port_read_direct.buf_buf = buf;
+    port->port_read_direct.buf_get = buf;
+    port->port_read_direct.buf_put = buf;
+    port->port_read_direct.isFull = 0;
+    port->port_read_direct.buf_size = count;
+    port->port_Active_read_buf_p = &port->port_read_direct;
+	}
+	spin_unlock_irqrestore(&port->port_lock, flags);
+  return count;
+}
+EXPORT_SYMBOL(UDVT_Direct_Read);
 
 static void gs_flush_chars(struct tty_struct *tty)
 {
 	struct gs_port	*port = tty->driver_data;
 	unsigned long	flags;
+
+	/* ALPS00423739 */
+	if (!port) {
+		printk("ERROR!!! port is closed!! %s, line %d: port = %p\n", __func__, __LINE__, port);
+		/*abort immediately after disconnect */
+		return;
+	}
 
 	pr_vdebug("gs_flush_chars: (%d,%p)\n", port->port_num, tty);
 
@@ -944,6 +1257,13 @@ static int gs_write_room(struct tty_struct *tty)
 	struct gs_port	*port = tty->driver_data;
 	unsigned long	flags;
 	int		room = 0;
+
+	/* ALPS00423739 */
+	if (!port) {
+		printk("ERROR!!! port is closed!! %s, line %d: port = %p\n", __func__, __LINE__, port);
+		/*abort immediately after disconnect */
+		return -EINVAL;
+	}
 
 	spin_lock_irqsave(&port->port_lock, flags);
 	if (port->port_usb)
@@ -962,6 +1282,13 @@ static int gs_chars_in_buffer(struct tty_struct *tty)
 	unsigned long	flags;
 	int		chars = 0;
 
+	/* ALPS00423739 */
+	if (!port) {
+		printk("ERROR!!! port is closed!! %s, line %d: port = %p\n", __func__, __LINE__, port);
+		/*abort immediately after disconnect */
+		return -EINVAL;
+	}
+
 	spin_lock_irqsave(&port->port_lock, flags);
 	chars = gs_buf_data_avail(&port->port_write_buf);
 	spin_unlock_irqrestore(&port->port_lock, flags);
@@ -977,6 +1304,13 @@ static void gs_unthrottle(struct tty_struct *tty)
 {
 	struct gs_port		*port = tty->driver_data;
 	unsigned long		flags;
+
+	/* ALPS00423739 */
+	if (!port) {
+		printk("ERROR!!! port is closed!! %s, line %d: port = %p\n", __func__, __LINE__, port);
+		/*abort immediately after disconnect */
+		return;
+	}
 
 	spin_lock_irqsave(&port->port_lock, flags);
 	if (port->port_usb) {
@@ -995,6 +1329,13 @@ static int gs_break_ctl(struct tty_struct *tty, int duration)
 	struct gs_port	*port = tty->driver_data;
 	int		status = 0;
 	struct gserial	*gser;
+
+	/* ALPS00423739 */
+	if (!port) {
+		printk("ERROR!!! port is closed!! %s, line %d: port = %p\n", __func__, __LINE__, port);
+		/*abort immediately after disconnect */
+		return -EINVAL;
+	}
 
 	pr_vdebug("gs_break_ctl: ttyGS%d, send break (%d) \n",
 			port->port_num, duration);
@@ -1126,6 +1467,7 @@ int gserial_alloc_line(unsigned char *line_num)
 
 	tty_dev = tty_port_register_device(&ports[port_num].port->port,
 			gs_tty_driver, port_num, NULL);
+
 	if (IS_ERR(tty_dev)) {
 		struct gs_port	*port;
 		pr_err("%s: failed to register tty for port %d, err %ld\n",

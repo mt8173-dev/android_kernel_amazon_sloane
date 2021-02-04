@@ -70,8 +70,8 @@ static void disconnect_work(struct work_struct *work)
 {
 	if (!cfg80211_is_all_idle())
 		return;
-
-	regulatory_hint_disconnect();
+	/* do not fallback to WW after disconnect */
+	/* regulatory_hint_disconnect(); */
 }
 
 static DECLARE_WORK(cfg80211_disconnect_work, disconnect_work);
@@ -528,8 +528,9 @@ void __cfg80211_connect_result(struct net_device *dev, const u8 *bssid,
 	 * - country_ie + 2, the start of the country ie data, and
 	 * - and country_ie[1] which is the IE length
 	 */
-	regulatory_hint_11d(wdev->wiphy, bss->channel->band,
-			    country_ie + 2, country_ie[1]);
+	/*regulatory_hint_11d(wdev->wiphy, bss->channel->band,
+	*		    country_ie + 2, country_ie[1]);
+	*/
 	kfree(country_ie);
 }
 
@@ -707,8 +708,10 @@ void __cfg80211_disconnected(struct net_device *dev, const u8 *ie,
 		    wdev->iftype != NL80211_IFTYPE_P2P_CLIENT))
 		return;
 
+#ifndef CONFIG_CFG80211_ALLOW_RECONNECT
 	if (wdev->sme_state != CFG80211_SME_CONNECTED)
 		return;
+#endif
 
 	if (wdev->current_bss) {
 		cfg80211_unhold_bss(wdev->current_bss);
@@ -785,10 +788,14 @@ int __cfg80211_connect(struct cfg80211_registered_device *rdev,
 
 	ASSERT_WDEV_LOCK(wdev);
 
+#ifndef CONFIG_CFG80211_ALLOW_RECONNECT
 	if (wdev->sme_state != CFG80211_SME_IDLE)
 		return -EALREADY;
 
 	if (WARN_ON(wdev->connect_keys)) {
+#else
+	if (wdev->connect_keys) {
+#endif
 		kfree(wdev->connect_keys);
 		wdev->connect_keys = NULL;
 	}

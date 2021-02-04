@@ -70,6 +70,6 @@ obj-$(CONFIG_REGULATOR_WM831X) += wm831x-ldo.o
 obj-$(CONFIG_REGULATOR_WM8350) += wm8350-regulator.o
 obj-$(CONFIG_REGULATOR_WM8400) += wm8400-regulator.o
 obj-$(CONFIG_REGULATOR_WM8994) += wm8994-regulator.o
-
-
+obj-$(CONFIG_REGULATOR_MT6397) += mt6397-regulator.o
+obj-$(CONFIG_REGULATOR_DA9212) += da9212-regulator.o
 ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG

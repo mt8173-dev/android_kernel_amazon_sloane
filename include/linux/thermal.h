@@ -56,6 +56,10 @@
 #define DEFAULT_THERMAL_GOVERNOR       "fair_share"
 #elif defined(CONFIG_THERMAL_DEFAULT_GOV_USER_SPACE)
 #define DEFAULT_THERMAL_GOVERNOR       "user_space"
+#elif defined(CONFIG_THERMAL_DEFAULT_GOV_BACKWARD_COMPATIBLE)
+#define DEFAULT_THERMAL_GOVERNOR       "backward_compatible"
+#elif defined(CONFIG_THERMAL_DEFAULT_GOV_TRIP_STEP_WISE)
+#define DEFAULT_THERMAL_GOVERNOR       "trip_step_wise"
 #endif
 
 struct thermal_zone_device;

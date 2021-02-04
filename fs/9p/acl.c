@@ -326,12 +326,14 @@ static int v9fs_xattr_set_acl(struct dentry *dentry, const char *name,
 				goto err_out;
 			else {
 				struct iattr iattr;
+				struct posix_acl *old_acl = acl;
 				if (retval == 0) {
 					/*
 					 * ACL can be represented
 					 * by the mode bits. So don't
 					 * update ACL.
 					 */
+					posix_acl_release(old_acl);
 					acl = NULL;
 					value = NULL;
 					size = 0;

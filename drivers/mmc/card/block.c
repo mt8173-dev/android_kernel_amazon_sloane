@@ -35,16 +35,22 @@
 #include <linux/capability.h>
 #include <linux/compat.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/mmc.h>
+
 #include <linux/mmc/ioctl.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/sd.h>
+#include <linux/mmc/ffu.h>
 
 #include <asm/uaccess.h>
 
 #include "queue.h"
 
+
+#include <linux/mmc/sd_misc.h>
 MODULE_ALIAS("mmc:block");
 #ifdef MODULE_PARAM_PREFIX
 #undef MODULE_PARAM_PREFIX
@@ -163,11 +169,7 @@ static struct mmc_blk_data *mmc_blk_get(struct gendisk *disk)
 
 static inline int mmc_get_devidx(struct gendisk *disk)
 {
-	int devmaj = MAJOR(disk_devt(disk));
-	int devidx = MINOR(disk_devt(disk)) / perdev_minors;
-
-	if (!devmaj)
-		devidx = disk->first_minor / perdev_minors;
+	int devidx = disk->first_minor / perdev_minors;
 	return devidx;
 }
 
@@ -179,7 +181,7 @@ static void mmc_blk_put(struct mmc_blk_data *md)
 		int devidx = mmc_get_devidx(md->disk);
 		blk_cleanup_queue(md->queue.queue);
 
-		__clear_bit(devidx, dev_use);
+		clear_bit(devidx, dev_use);
 
 		put_disk(md->disk);
 		kfree(md);
@@ -453,6 +455,14 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	cmd.arg = idata->ic.arg;
 	cmd.flags = idata->ic.flags;
 
+	if (is_rpmb) {
+		switch (cmd.opcode) {
+		case MMC_READ_MULTIPLE_BLOCK:
+		case MMC_WRITE_MULTIPLE_BLOCK:
+		cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
+		break;
+		}
+	}
 	if (idata->buf_bytes) {
 		data.sg = &sg;
 		data.sg_len = 1;
@@ -492,7 +502,18 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	mrq.cmd = &cmd;
 
 	mmc_claim_host(card->host);
+#ifdef CONFIG_MMC_FFU
+	if (cmd.opcode == MMC_FFU_DOWNLOAD_OP) {
+		err = mmc_ffu_download(card, &cmd , idata->buf,
+				idata->buf_bytes);
+		goto cmd_rel_host;
+	}
 
+	if (cmd.opcode == MMC_FFU_INSTALL_OP) {
+		err = mmc_ffu_install(card);
+		goto cmd_rel_host;
+	}
+#endif
 	err = mmc_blk_part_switch(card, md);
 	if (err)
 		goto cmd_rel_host;
@@ -679,6 +700,12 @@ static u32 mmc_sd_num_wr_blocks(struct mmc_card *card)
 	return result;
 }
 
+u32 __mmc_sd_num_wr_blocks(struct mmc_card *card)
+{
+	return mmc_sd_num_wr_blocks(card);
+}
+EXPORT_SYMBOL(__mmc_sd_num_wr_blocks);
+
 static int send_stop(struct mmc_card *card, u32 *status)
 {
 	struct mmc_command cmd = {0};
@@ -728,24 +755,28 @@ static int mmc_blk_cmd_error(struct request *req, const char *name, int error,
 			req->rq_disk->disk_name, "timed out", name, status);
 
 		/* If the status cmd initially failed, retry the r/w cmd */
-		if (!status_valid)
+		if (!status_valid) {
+			pr_err("%s: status not valid, retrying timeout\n", req->rq_disk->disk_name);
 			return ERR_RETRY;
-
+		}
 		/*
 		 * If it was a r/w cmd crc error, or illegal command
 		 * (eg, issued in wrong state) then retry - we should
 		 * have corrected the state problem above.
 		 */
-		if (status & (R1_COM_CRC_ERROR | R1_ILLEGAL_COMMAND))
+		if (status & (R1_COM_CRC_ERROR | R1_ILLEGAL_COMMAND)) {
+			pr_err("%s: command error, retrying timeout\n", req->rq_disk->disk_name);
 			return ERR_RETRY;
+		}
 
 		/* Otherwise abort the command */
+		pr_err("%s: not retrying timeout\n", req->rq_disk->disk_name);
 		return ERR_ABORT;
 
 	default:
 		/* We don't understand the error code the driver gave us */
 		pr_err("%s: unknown error %d sending read/write command, card status %#x\n",
-		       req->rq_disk->disk_name, error, status);
+			req->rq_disk->disk_name, error, status);
 		return ERR_ABORT;
 	}
 }
@@ -790,7 +821,7 @@ static int mmc_blk_cmd_recovery(struct mmc_card *card, struct request *req,
 
 		prev_cmd_status_valid = false;
 		pr_err("%s: error %d sending status command, %sing\n",
-		       req->rq_disk->disk_name, err, retry ? "retry" : "abort");
+			req->rq_disk->disk_name, err, retry ? "retry" : "abort");
 	}
 
 	/* We couldn't get a response from the card.  Give up. */
@@ -826,7 +857,7 @@ static int mmc_blk_cmd_recovery(struct mmc_card *card, struct request *req,
 		err = send_stop(card, &stop_status);
 		if (err)
 			pr_err("%s: error %d sending stop command\n",
-			       req->rq_disk->disk_name, err);
+				req->rq_disk->disk_name, err);
 
 		/*
 		 * If the stop cmd also timed out, the card is probably
@@ -1019,9 +1050,12 @@ retry:
 			goto out;
 	}
 
-	if (mmc_can_sanitize(card))
+	if (mmc_can_sanitize(card)) {
+		trace_mmc_blk_erase_start(EXT_CSD_SANITIZE_START, 0, 0);
 		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 				 EXT_CSD_SANITIZE_START, 1, 0);
+		trace_mmc_blk_erase_end(EXT_CSD_SANITIZE_START, 0, 0);
+	}
 out_retry:
 	if (err && !mmc_blk_reset(md, card->host, type))
 		goto retry;
@@ -1231,7 +1265,7 @@ static int mmc_blk_packed_err_check(struct mmc_card *card,
 	err = get_card_status(card, &status, 0);
 	if (err) {
 		pr_err("%s: error %d sending status command\n",
-		       req->rq_disk->disk_name, err);
+			req->rq_disk->disk_name, err);
 		return MMC_BLK_ABORT;
 	}
 
@@ -1246,7 +1280,7 @@ static int mmc_blk_packed_err_check(struct mmc_card *card,
 		err = mmc_send_ext_csd(card, ext_csd);
 		if (err) {
 			pr_err("%s: error %d sending ext_csd\n",
-			       req->rq_disk->disk_name, err);
+				req->rq_disk->disk_name, err);
 			check = MMC_BLK_ABORT;
 			goto free;
 		}
@@ -1261,10 +1295,9 @@ static int mmc_blk_packed_err_check(struct mmc_card *card,
 				  ext_csd[EXT_CSD_PACKED_FAILURE_INDEX] - 1;
 				check = MMC_BLK_PARTIAL;
 			}
-			pr_err("%s: packed cmd failed, nr %u, sectors %u, "
-			       "failure index: %d\n",
-			       req->rq_disk->disk_name, packed->nr_entries,
-			       packed->blocks, packed->idx_failure);
+			pr_err("%s: packed cmd failed, nr %u, sectors %u, failure index: %d\n",
+				req->rq_disk->disk_name, packed->nr_entries,
+				packed->blocks, packed->idx_failure);
 		}
 free:
 		kfree(ext_csd);
@@ -1274,9 +1307,9 @@ free:
 }
 
 static void mmc_blk_rw_rq_prep(struct mmc_queue_req *mqrq,
-			       struct mmc_card *card,
-			       int disable_multi,
-			       struct mmc_queue *mq)
+				struct mmc_card *card,
+				int disable_multi,
+				struct mmc_queue *mq)
 {
 	u32 readcmd, writecmd;
 	struct mmc_blk_request *brq = &mqrq->brq;
@@ -1347,6 +1380,15 @@ static void mmc_blk_rw_rq_prep(struct mmc_queue_req *mqrq,
 		readcmd = MMC_READ_SINGLE_BLOCK;
 		writecmd = MMC_WRITE_BLOCK;
 	}
+#ifdef CONFIG_MTK_EMMC_CACHE
+	/* for non-cacheable system data,
+	* the implementation of reliable write / force prg write,
+	* must be applied with mutli write cmd
+	* */
+	if (mmc_card_mmc(card) && (card->ext_csd.cache_ctrl & 0x1)) {
+		writecmd = MMC_WRITE_MULTIPLE_BLOCK;
+	}
+#endif
 	if (rq_data_dir(req) == READ) {
 		brq->cmd.opcode = readcmd;
 		brq->data.flags |= MMC_DATA_READ;
@@ -1930,8 +1972,14 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_blk_data *md = mq->data;
 	struct mmc_card *card = md->queue.card;
 	struct mmc_host *host = card->host;
+	/* unsigned req_cmd_flags = req ? req->cmd_flags : 0; */
 	unsigned long flags;
 	unsigned int cmd_flags = req ? req->cmd_flags : 0;
+
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	if (mmc_bus_needs_resume(card->host))
+		mmc_resume_bus(card->host);
+#endif
 
 	if (req && !mq->mqrq_prev->req)
 		/* claim host only for the first request */
@@ -1990,11 +2038,11 @@ static inline int mmc_blk_readonly(struct mmc_card *card)
 }
 
 static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
-					      struct device *parent,
-					      sector_t size,
-					      bool default_ro,
-					      const char *subname,
-					      int area_type)
+						struct device *parent,
+						sector_t size,
+						bool default_ro,
+						const char *subname,
+						int area_type)
 {
 	struct mmc_blk_data *md;
 	int devidx, ret;
@@ -2055,6 +2103,7 @@ static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
 	md->disk->queue = md->queue.queue;
 	md->disk->driverfs_dev = parent;
 	set_disk_ro(md->disk, md->read_only || default_ro);
+	md->disk->flags = GENHD_FL_EXT_DEVT;
 	if (area_type & MMC_BLK_DATA_AREA_RPMB)
 		md->disk->flags |= GENHD_FL_NO_PART_SCAN;
 
@@ -2117,6 +2166,10 @@ static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
 static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 {
 	sector_t size;
+#ifdef CONFIG_MTK_EMMC_SUPPORT
+    unsigned int l_reserve = 0;
+	struct storage_info s_info = {0};
+#endif
 	struct mmc_blk_data *md;
 
 	if (!mmc_card_sd(card) && mmc_card_blockaddr(card)) {
@@ -2133,6 +2186,14 @@ static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 		size = card->csd.capacity << (card->csd.read_blkbits - 9);
 	}
 
+	if(!mmc_card_sd(card)){
+#ifdef CONFIG_MTK_EMMC_SUPPORT
+// Should be fix: mask for build pass.	            msdc_get_info(EMMC_CARD_BOOT, EMMC_RESERVE, &s_info);
+            l_reserve =  s_info.emmc_reserve;
+            printk("l_reserve = 0x%x\n", l_reserve);
+            size -= l_reserve;                         /*reserved for 64MB (emmc otp + emmc combo offset + reserved)*/
+#endif
+    }
 	md = mmc_blk_alloc_req(card, &card->dev, size, false, NULL,
 					MMC_BLK_DATA_AREA_MAIN);
 	return md;
@@ -2281,6 +2342,9 @@ force_ro_fail:
 #define CID_MANFID_TOSHIBA	0x11
 #define CID_MANFID_MICRON	0x13
 #define CID_MANFID_SAMSUNG	0x15
+#define CID_MANFID_SANDISK_NEW	0x45
+#define CID_MANFID_HYNIX	0x90
+#define CID_MANFID_KSI		0x70
 
 static const struct mmc_fixup blk_fixups[] =
 {
@@ -2294,7 +2358,8 @@ static const struct mmc_fixup blk_fixups[] =
 		  MMC_QUIRK_INAND_CMD38),
 	MMC_FIXUP("SEM32G", CID_MANFID_SANDISK, 0x100, add_quirk,
 		  MMC_QUIRK_INAND_CMD38),
-
+	MMC_FIXUP(CID_NAME_ANY, CID_MANFID_SANDISK_NEW, CID_OEMID_ANY, add_quirk,
+		  MMC_QUIRK_PON),
 	/*
 	 * Some MMC cards experience performance degradation with CMD23
 	 * instead of CMD12-bounded multiblock transfers. For now we'll
@@ -2338,7 +2403,27 @@ static const struct mmc_fixup blk_fixups[] =
 		  MMC_QUIRK_SEC_ERASE_TRIM_BROKEN),
 	MMC_FIXUP("VZL00M", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
 		  MMC_QUIRK_SEC_ERASE_TRIM_BROKEN),
+#ifdef CONFIG_MTK_EMMC_CACHE
+	/*
+	* Some MMC cards cache feature, cannot flush the previous cache data by force programming or reliable write
+	* which cannot gurrantee the strong order betwee meta data and file data.
+	*/
+	MMC_FIXUP(CID_NAME_ANY, CID_MANFID_SANDISK, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_DISABLE_CACHE),
+#endif
+	/* Hynix 4.41 trim will lead boot up failed. */
+	MMC_FIXUP(CID_NAME_ANY, CID_MANFID_HYNIX, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_TRIM_UNSTABLE),
 
+	/* KSI PRV=0x3 trim will lead write performance drop. */
+	MMC_FIXUP(CID_NAME_ANY, CID_MANFID_KSI, CID_OEMID_ANY, add_quirk_mmc_ksi_v03_skip_trim,
+		  MMC_QUIRK_KSI_V03_SKIP_TRIM),
+
+
+#ifdef CONFIG_MMC_SAMSUNG_SMART
+	MMC_FIXUP(CID_NAME_ANY, CID_MANFID_SAMSUNG, CID_OEMID_ANY,
+			add_quirk_mmc, MMC_QUIRK_SAMSUNG_SMART),
+#endif /* CONFIG_MMC_SAMSUNG_SMART */
 	END_FIXUP
 };
 
@@ -2369,6 +2454,9 @@ static int mmc_blk_probe(struct mmc_card *card)
 	mmc_set_drvdata(card, md);
 	mmc_fixup_device(card, blk_fixups);
 
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	mmc_set_bus_resume_policy(card->host, 1);
+#endif
 	if (mmc_add_disk(md))
 		goto out;
 
@@ -2394,6 +2482,9 @@ static void mmc_blk_remove(struct mmc_card *card)
 	mmc_release_host(card->host);
 	mmc_blk_remove_req(md);
 	mmc_set_drvdata(card, NULL);
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	mmc_set_bus_resume_policy(card->host, 0);
+#endif
 }
 
 #ifdef CONFIG_PM

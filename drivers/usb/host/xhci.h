@@ -677,7 +677,6 @@ struct xhci_ep_ctx {
 /* deq bitmasks */
 #define EP_CTX_CYCLE_MASK		(1 << 0)
 
-
 /**
  * struct xhci_input_control_context
  * Input control context; see section 6.2.5.
@@ -1457,7 +1456,9 @@ struct xhci_hcd {
 	struct xhci_virt_device	*devs[MAX_HC_SLOTS];
 	/* For keeping track of bandwidth domains per roothub. */
 	struct xhci_root_port_bw_info	*rh_bw;
-
+#ifdef CONFIG_MTK_XHCI
+	void *sch_ports;
+#endif
 	/* DMA pools */
 	struct dma_pool	*device_pool;
 	struct dma_pool	*segment_pool;
@@ -1517,6 +1518,7 @@ struct xhci_hcd {
 #define XHCI_COMP_MODE_QUIRK	(1 << 14)
 #define XHCI_AVOID_BEI		(1 << 15)
 #define XHCI_PLAT		(1 << 16)
+#define XHCI_MTK_HOST		(1 << 17)
 	unsigned int		num_active_eps;
 	unsigned int		limit_active_eps;
 	/* There are two roothubs to keep track of bus suspend info for */
@@ -1739,6 +1741,9 @@ int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks);
 #ifdef	CONFIG_PM
 int xhci_suspend(struct xhci_hcd *xhci);
 int xhci_resume(struct xhci_hcd *xhci, bool hibernated);
+int xhci_str_suspend(struct xhci_hcd *xhci);
+int xhci_str_resume(struct xhci_hcd *xhci);
+
 #else
 #define	xhci_suspend	NULL
 #define	xhci_resume	NULL

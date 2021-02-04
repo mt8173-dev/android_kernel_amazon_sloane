@@ -74,6 +74,21 @@ void show_swap_cache_info(void)
 	printk("Total swap = %lukB\n", total_swap_pages << (PAGE_SHIFT - 10));
 }
 
+/* ACOS_MOD_BEGIN {fwk_crash_log_collection} */
+void lmk_add_to_buffer(const char *fmt, ...);
+
+void show_swap_cache_info_lmk(void)
+{
+	lmk_add_to_buffer("%lu pages in swap cache\n", total_swapcache_pages());
+	lmk_add_to_buffer("Swap cache stats: add %lu, delete %lu, find %lu/%lu\n",
+		swap_cache_info.add_total, swap_cache_info.del_total,
+		swap_cache_info.find_success, swap_cache_info.find_total);
+	lmk_add_to_buffer("Free swap  = %ldkB\n",
+		get_nr_swap_pages() << (PAGE_SHIFT - 10));
+	lmk_add_to_buffer("Total swap = %lukB\n", total_swap_pages << (PAGE_SHIFT - 10));
+}
+/* ACOS_MOD_END {fwk_crash_log_collection} */
+
 /*
  * __add_to_swap_cache resembles add_to_page_cache_locked on swapper_space,
  * but sets SwapCache flag and private instead of mapping and index.

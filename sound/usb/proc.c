@@ -43,6 +43,16 @@ static inline unsigned get_high_speed_hz(unsigned int usb_rate)
 /*
  * common proc files to show the usb device info
  */
+static void proc_audio_serial_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
+{
+	struct snd_usb_audio *chip = entry->private_data;
+	if (!chip->shutdown)
+		snd_iprintf(buffer, "%s\n", chip->dev->serial);
+}
+
+/*
+ * common proc files to show the usb device info
+ */
 static void proc_audio_usbbus_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
 {
 	struct snd_usb_audio *chip = entry->private_data;
@@ -66,6 +76,8 @@ void snd_usb_audio_create_proc(struct snd_usb_audio *chip)
 		snd_info_set_text_ops(entry, chip, proc_audio_usbbus_read);
 	if (!snd_card_proc_new(chip->card, "usbid", &entry))
 		snd_info_set_text_ops(entry, chip, proc_audio_usbid_read);
+	if (!snd_card_proc_new(chip->card, "serial", &entry))
+		snd_info_set_text_ops(entry, chip, proc_audio_serial_read);
 }
 
 /*

@@ -2,7 +2,11 @@
 # Makefile for USB Host Controller Drivers
 #
 
-ccflags-$(CONFIG_USB_DEBUG) := -DDEBUG
+ifneq ($(CONFIG_USB_XHCI_PLATFORM), )
+	ccflags-$(CONFIG_USB_DEBUG) := -DDEBUG -I$(src)/../../../../mediatek/kernel/include
+else
+	ccflags-$(CONFIG_USB_DEBUG) := -DDEBUG
+endif
 
 isp1760-y := isp1760-hcd.o isp1760-if.o
 
@@ -14,12 +18,13 @@ fhci-$(CONFIG_FHCI_DEBUG) += fhci-dbg.o
 xhci-hcd-y := xhci.o xhci-mem.o
 xhci-hcd-y += xhci-ring.o xhci-hub.o xhci-dbg.o
 xhci-hcd-$(CONFIG_PCI)	+= xhci-pci.o
-
+xhci-hcd-y += xhci-mtk-test.o xhci-mtk.o
 ifneq ($(CONFIG_USB_XHCI_PLATFORM), )
 	xhci-hcd-y		+= xhci-plat.o
 endif
 
 obj-$(CONFIG_USB_WHCI_HCD)	+= whci/
+obj-$(CONFIG_ARCH_MT8135)       += usb20/
 
 obj-$(CONFIG_PCI)		+= pci-quirks.o
 

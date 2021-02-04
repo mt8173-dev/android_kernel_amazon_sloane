@@ -48,6 +48,24 @@ static ssize_t show_port_number(struct device *dev,
 
 static DEVICE_ATTR(port_number, S_IRUGO, show_port_number, NULL);
 
+static ssize_t show_pid(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct usb_serial_port *port = to_usb_serial_port(dev);
+
+	return sprintf(buf, "%04x\n", port->serial->dev->descriptor.idProduct);
+}
+static DEVICE_ATTR(idProduct, S_IRUGO, show_pid, NULL);
+
+static ssize_t show_vid(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct usb_serial_port *port = to_usb_serial_port(dev);
+
+	return sprintf(buf, "%04x\n", port->serial->dev->descriptor.idVendor);
+}
+static DEVICE_ATTR(idVendor, S_IRUGO, show_vid, NULL);
+
 static int usb_serial_device_probe(struct device *dev)
 {
 	struct usb_serial_driver *driver;
@@ -78,6 +96,20 @@ static int usb_serial_device_probe(struct device *dev)
 		if (driver->port_remove)
 			retval = driver->port_remove(port);
 		goto exit_with_autopm;
+	}
+
+	retval = device_create_file(dev, &dev_attr_idProduct);
+	if (retval) {
+		dev_info(&port->serial->dev->dev,
+			 "%s failed to load idProduct\n",
+			 driver->description);
+	}
+
+	retval = device_create_file(dev, &dev_attr_idVendor);
+	if (retval) {
+		dev_info(&port->serial->dev->dev,
+			 "%s failed to load idVendor\n",
+			 driver->description);
 	}
 
 	minor = port->number;

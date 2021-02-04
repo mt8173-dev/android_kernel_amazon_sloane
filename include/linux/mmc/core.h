@@ -15,6 +15,7 @@ struct request;
 struct mmc_data;
 struct mmc_request;
 
+
 struct mmc_command {
 	u32			opcode;
 	u32			arg;
@@ -191,7 +192,12 @@ extern int mmc_try_claim_host(struct mmc_host *host);
 extern int mmc_flush_cache(struct mmc_card *);
 
 extern int mmc_detect_card_removed(struct mmc_host *host);
-
+#ifdef CONFIG_MTK_EMMC_CACHE
+extern void mmc_start_flush(struct mmc_card *card);
+extern int mmc_stop_flush(struct mmc_card *card);
+extern void mmc_start_delayed_flush(struct mmc_card *card);
+extern void mmc_start_idle_time_flush(struct work_struct *work);
+#endif
 /**
  *	mmc_claim_host - exclusively claim a host
  *	@host: mmc host to claim

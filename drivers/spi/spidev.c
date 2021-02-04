@@ -243,7 +243,7 @@ static int spidev_message(struct spidev_data *spidev,
 		k_tmp->len = u_tmp->len;
 
 		total += k_tmp->len;
-		if (total > bufsiz) {
+		if (total < k_tmp->len || total > bufsiz) {
 			status = -EMSGSIZE;
 			goto done;
 		}

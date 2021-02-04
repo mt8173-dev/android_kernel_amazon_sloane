@@ -1,0 +1,16 @@
+#if ARCH_MEDIATEK
+
+config PINCTRL_MTK_COMMON
+	bool
+	select PINMUX
+	select GENERIC_PINCONF
+	select GPIOLIB
+
+config PINCTRL_MT8173
+	def_bool ARCH_MT8173
+	select PINCTRL_MTK_COMMON
+
+config PINCTRL_MT6397
+	def_bool ARCH_MT8173 || ARCH_MT8135
+	
+#endif

@@ -189,6 +189,26 @@ static inline int notifier_to_errno(int ret)
  */
  
 /* CPU notfiers are defined in include/linux/cpu.h. */
+/*******************************************************************************
+* CPU Hotplug debug mechanism                                                  *
+*******************************************************************************/
+/*
+ * define MTK_CPU_HOTPLUG_DEBUG_0 for using printk to log cpu notify callback in register_cpu_notifier
+ * define MTK_CPU_HOTPLUG_DEBUG_1 for using printk(debug level) to log cpu notify callback in notifier_call_chain
+ * define MTK_CPU_HOTPLUG_DEBUG_2 for using aee to log cpu notify callback in notifier_call_chain
+ */
+#if 0
+#define MTK_CPU_HOTPLUG_DEBUG_0
+#define MTK_CPU_HOTPLUG_DEBUG_1
+#define MTK_CPU_HOTPLUG_DEBUG_2
+#endif
+
+#if defined(CONFIG_SMP) && (defined(MTK_CPU_HOTPLUG_DEBUG_1) || defined(MTK_CPU_HOTPLUG_DEBUG_2))
+extern struct raw_notifier_head cpu_chain;
+#endif /* #if defined(CONFIG_SMP) && (defined(MTK_CPU_HOTPLUG_DEBUG_1) || defined(MTK_CPU_HOTPLUG_DEBUG_2)) */
+/******************************************************************************/
+
+
 
 /* netdevice notifiers are defined in include/linux/netdevice.h */
 

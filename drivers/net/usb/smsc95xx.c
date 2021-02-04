@@ -32,6 +32,9 @@
 #include <linux/usb/usbnet.h>
 #include <linux/slab.h>
 #include "smsc95xx.h"
+#ifdef CONFIG_IDME
+#include <linux/of.h>
+#endif /* CONFIG_IDME */
 
 #define SMSC_CHIPNAME			"smsc95xx"
 #define SMSC_DRIVER_VERSION		"1.0.4"
@@ -59,8 +62,9 @@
 #define SUSPEND_SUSPEND1		(0x02)
 #define SUSPEND_SUSPEND2		(0x04)
 #define SUSPEND_SUSPEND3		(0x08)
+#define SUSPEND_NETDETACH		(0x10)
 #define SUSPEND_ALLMODES		(SUSPEND_SUSPEND0 | SUSPEND_SUSPEND1 | \
-					 SUSPEND_SUSPEND2 | SUSPEND_SUSPEND3)
+					 SUSPEND_SUSPEND2 | SUSPEND_SUSPEND3 | SUSPEND_NETDETACH)
 
 struct smsc95xx_priv {
 	u32 mac_cr;
@@ -70,11 +74,17 @@ struct smsc95xx_priv {
 	spinlock_t mac_cr_lock;
 	u8 features;
 	u8 suspend_flags;
+	struct timer_list link_timer;
+	u8 netdetach_timer_count;
 };
 
-static bool turbo_mode = true;
+static bool turbo_mode;
 module_param(turbo_mode, bool, 0644);
 MODULE_PARM_DESC(turbo_mode, "Enable multiple frames per Rx transaction");
+
+static bool netdetach = true;
+
+static bool reset_link;
 
 static int __must_check __smsc95xx_read_reg(struct usbnet *dev, u32 index,
 					    u32 *data, int in_pm)
@@ -466,6 +476,9 @@ static void smsc95xx_set_multicast(struct net_device *netdev)
 	pdata->hash_hi = 0;
 	pdata->hash_lo = 0;
 
+	if (pdata->suspend_flags)
+		return;
+
 	spin_lock_irqsave(&pdata->mac_cr_lock, flags);
 
 	if (dev->net->flags & IFF_PROMISC) {
@@ -553,13 +566,15 @@ static int smsc95xx_phy_update_flowcontrol(struct usbnet *dev, u8 duplex,
 	return smsc95xx_write_reg(dev, AFC_CFG, afc_cfg);
 }
 
+static void smsc95xx_do_netdetach(struct usbnet *dev);
+
 static int smsc95xx_link_reset(struct usbnet *dev)
 {
 	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
 	struct mii_if_info *mii = &dev->mii;
 	struct ethtool_cmd ecmd = { .cmd = ETHTOOL_GSET };
 	unsigned long flags;
-	u16 lcladv, rmtadv;
+	u16 lcladv, rmtadv, value;
 	int ret;
 
 	/* clear interrupt status */
@@ -570,6 +585,32 @@ static int smsc95xx_link_reset(struct usbnet *dev)
 	ret = smsc95xx_write_reg(dev, INT_STS, INT_STS_CLEAR_ALL_);
 	if (ret < 0)
 		return ret;
+
+	if (netdetach) {
+		/* LL, read twice */
+		value = smsc95xx_mdio_read(dev->net, mii->phy_id, MII_BMSR);
+		value = smsc95xx_mdio_read(dev->net, mii->phy_id, MII_BMSR);
+		if (value & BMSR_LSTATUS) {
+			pdata->netdetach_timer_count = 0;
+		} else {
+			if ((pdata->netdetach_timer_count >= 5) ||
+				(pdata->suspend_flags & SUSPEND_NETDETACH)) {
+				/* do netdetach */
+				smsc95xx_do_netdetach(dev);
+				return 0;
+			} else {
+				if (!pdata->netdetach_timer_count)
+					mii_check_media(mii, 1, 1);
+
+				if (!timer_pending(&pdata->link_timer)) {
+					/* restart the timer to check the link */
+					pdata->link_timer.expires = jiffies + HZ;
+					add_timer(&(pdata->link_timer));
+					return 0;
+				}
+			}
+		}
+	}
 
 	mii_check_media(mii, 1, 1);
 	mii_ethtool_gset(&dev->mii, &ecmd);
@@ -597,6 +638,10 @@ static int smsc95xx_link_reset(struct usbnet *dev)
 	ret = smsc95xx_phy_update_flowcontrol(dev, ecmd.duplex, lcladv, rmtadv);
 	if (ret < 0)
 		netdev_warn(dev->net, "Error updating PHY flow control\n");
+
+	netif_warn(dev, link, dev->net,
+			  "speed: %u duplex: %s carrier: %d\n", ethtool_cmd_speed(&ecmd),
+			  (ecmd.duplex == DUPLEX_FULL) ? "full" : "half", usbnet_get_link(dev->net));
 
 	return ret;
 }
@@ -738,6 +783,39 @@ static int smsc95xx_ethtool_set_wol(struct net_device *net,
 	return ret;
 }
 
+#ifdef CONFIG_IDME
+#define IDME_OF_ETH_MAC_ADDR        "/idme/eth_mac_addr"
+
+static int idme_get_eth_mac_addr(struct usbnet *dev, u8 *addr)
+{
+	struct device_node *ap;
+	int len, i;
+	int ret = 0;
+	char buf[3] = {0};
+
+	ap = of_find_node_by_path(IDME_OF_ETH_MAC_ADDR);
+	if (likely(ap)) {
+		const char *eth_mac_addr = of_get_property(ap, "value", &len);
+		if (likely(len >= 12)) {
+			for (i = 0; i < 12; i += 2) {
+				buf[0] = eth_mac_addr[i];
+				buf[1] = eth_mac_addr[i + 1];
+				ret = kstrtou8(buf, 16, &addr[i/2]);
+				if (ret)
+					netdev_warn(dev->net, "[%d]kstrtou8 failed\n", i);
+			}
+		} else {
+			netdev_warn(dev->net, "Invalid mac address length\n");
+			return -1;
+		}
+	} else {
+		netdev_warn(dev->net, "No IDME mac address node\n");
+		return -1;
+	}
+	return 0;
+}
+#endif /* CONFIG_IDME */
+
 static const struct ethtool_ops smsc95xx_ethtool_ops = {
 	.get_link	= usbnet_get_link,
 	.nway_reset	= usbnet_nway_reset,
@@ -767,6 +845,17 @@ static int smsc95xx_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 
 static void smsc95xx_init_mac_address(struct usbnet *dev)
 {
+
+#ifdef CONFIG_IDME
+	if (idme_get_eth_mac_addr(dev, dev->net->dev_addr) == 0) {
+		if (is_valid_ether_addr(dev->net->dev_addr)) {
+			/* eeprom values are valid so use them */
+			netif_dbg(dev, ifup, dev->net, "MAC address read from IDME\n");
+			return;
+		}
+	}
+#endif /* CONFIG_IDME */
+
 	/* try reading mac address from EEPROM */
 	if (smsc95xx_read_eeprom(dev, EEPROM_MAC_OFFSET, ETH_ALEN,
 			dev->net->dev_addr) == 0) {
@@ -1101,6 +1190,18 @@ static const struct net_device_ops smsc95xx_netdev_ops = {
 	.ndo_set_features	= smsc95xx_set_features,
 };
 
+static void smsc95xx_link_timer(unsigned long ptr)
+{
+	struct usbnet *dev = (struct usbnet *)ptr;
+	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
+
+	if (!dev)
+		return;
+
+	pdata->netdetach_timer_count++;
+	usbnet_defer_kevent(dev, EVENT_LINK_RESET);
+}
+
 static int smsc95xx_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	struct smsc95xx_priv *pdata = NULL;
@@ -1133,6 +1234,11 @@ static int smsc95xx_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	smsc95xx_init_mac_address(dev);
 
+	/* Link Timer for Netdetach */
+	pdata->link_timer.function = smsc95xx_link_timer;
+	pdata->link_timer.data = (unsigned long)dev;
+	init_timer(&(pdata->link_timer));
+
 	/* Init all registers */
 	ret = smsc95xx_reset(dev);
 
@@ -1155,6 +1261,18 @@ static int smsc95xx_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->net->flags |= IFF_MULTICAST;
 	dev->net->hard_header_len += SMSC95XX_TX_OVERHEAD_CSUM;
 	dev->hard_mtu = dev->net->mtu + dev->net->hard_header_len;
+
+	/* start link timer if cable is not attached */
+	if (netdetach) {
+		/* LL, read twice */
+		val = smsc95xx_mdio_read(dev->net, dev->mii.phy_id, MII_BMSR);
+		val = smsc95xx_mdio_read(dev->net, dev->mii.phy_id, MII_BMSR);
+		if (!(val & BMSR_LSTATUS)) {
+			/* start the timer to check the link */
+			pdata->link_timer.expires = jiffies + HZ;
+			add_timer(&(pdata->link_timer));
+		}
+	}
 	return 0;
 }
 
@@ -1216,45 +1334,6 @@ static int smsc95xx_link_ok_nopm(struct usbnet *dev)
 	return !!(ret & BMSR_LSTATUS);
 }
 
-static int smsc95xx_enter_suspend0(struct usbnet *dev)
-{
-	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
-	u32 val;
-	int ret;
-
-	ret = smsc95xx_read_reg_nopm(dev, PM_CTRL, &val);
-	if (ret < 0)
-		return ret;
-
-	val &= (~(PM_CTL_SUS_MODE_ | PM_CTL_WUPS_ | PM_CTL_PHY_RST_));
-	val |= PM_CTL_SUS_MODE_0;
-
-	ret = smsc95xx_write_reg_nopm(dev, PM_CTRL, val);
-	if (ret < 0)
-		return ret;
-
-	/* clear wol status */
-	val &= ~PM_CTL_WUPS_;
-	val |= PM_CTL_WUPS_WOL_;
-
-	/* enable energy detection */
-	if (pdata->wolopts & WAKE_PHY)
-		val |= PM_CTL_WUPS_ED_;
-
-	ret = smsc95xx_write_reg_nopm(dev, PM_CTRL, val);
-	if (ret < 0)
-		return ret;
-
-	/* read back PM_CTRL */
-	ret = smsc95xx_read_reg_nopm(dev, PM_CTRL, &val);
-	if (ret < 0)
-		return ret;
-
-	pdata->suspend_flags |= SUSPEND_SUSPEND0;
-
-	return 0;
-}
-
 static int smsc95xx_enter_suspend1(struct usbnet *dev)
 {
 	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
@@ -1303,28 +1382,6 @@ static int smsc95xx_enter_suspend1(struct usbnet *dev)
 	return 0;
 }
 
-static int smsc95xx_enter_suspend2(struct usbnet *dev)
-{
-	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
-	u32 val;
-	int ret;
-
-	ret = smsc95xx_read_reg_nopm(dev, PM_CTRL, &val);
-	if (ret < 0)
-		return ret;
-
-	val &= ~(PM_CTL_SUS_MODE_ | PM_CTL_WUPS_ | PM_CTL_PHY_RST_);
-	val |= PM_CTL_SUS_MODE_2;
-
-	ret = smsc95xx_write_reg_nopm(dev, PM_CTRL, val);
-	if (ret < 0)
-		return ret;
-
-	pdata->suspend_flags |= SUSPEND_SUSPEND2;
-
-	return 0;
-}
-
 static int smsc95xx_enter_suspend3(struct usbnet *dev)
 {
 	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
@@ -1364,6 +1421,25 @@ static int smsc95xx_enter_suspend3(struct usbnet *dev)
 	return 0;
 }
 
+static void smsc95xx_do_netdetach(struct usbnet *dev)
+{
+	int ret;
+	u32 value;
+
+	smsc95xx_enter_suspend1(dev);
+
+	/* do netdetach */
+	ret = smsc95xx_read_reg(dev, HW_CFG, &value);
+	if (ret < 0)
+		return;
+	value |= HW_CFG_SMDET_EN_;
+	/* no error checking here */
+	ret = smsc95xx_write_reg(dev, HW_CFG, value);
+	if (ret < 0)
+		netdev_warn(dev->net, "Error writing HW_CFG_SMDET_EN_\n");
+
+}
+
 static int smsc95xx_autosuspend(struct usbnet *dev, u32 link_up)
 {
 	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
@@ -1371,8 +1447,8 @@ static int smsc95xx_autosuspend(struct usbnet *dev, u32 link_up)
 
 	if (!netif_running(dev->net)) {
 		/* interface is ifconfig down so fully power down hw */
-		netdev_dbg(dev->net, "autosuspend entering SUSPEND2\n");
-		return smsc95xx_enter_suspend2(dev);
+		netdev_dbg(dev->net, "autosuspend entering SUSPEND1\n");
+		return smsc95xx_enter_suspend1(dev);
 	}
 
 	if (!link_up) {
@@ -1432,42 +1508,18 @@ static int smsc95xx_suspend(struct usb_interface *intf, pm_message_t message)
 	/* determine if link is up using only _nopm functions */
 	link_up = smsc95xx_link_ok_nopm(dev);
 
+	/* if link is not up, set the indicate netdetach and exit
+	* suspend. netdetach is defered
+	*/
+	if (netdetach && !link_up) {
+		pdata->suspend_flags |= SUSPEND_NETDETACH;
+		ret = -1;
+		goto done1;
+	}
+
 	if (message.event == PM_EVENT_AUTO_SUSPEND &&
 	    (pdata->features & FEATURE_REMOTE_WAKEUP)) {
 		ret = smsc95xx_autosuspend(dev, link_up);
-		goto done;
-	}
-
-	/* if we get this far we're not autosuspending */
-	/* if no wol options set, or if link is down and we're not waking on
-	 * PHY activity, enter lowest power SUSPEND2 mode
-	 */
-	if (!(pdata->wolopts & SUPPORTED_WAKE) ||
-		!(link_up || (pdata->wolopts & WAKE_PHY))) {
-		netdev_info(dev->net, "entering SUSPEND2 mode\n");
-
-		/* disable energy detect (link up) & wake up events */
-		ret = smsc95xx_read_reg_nopm(dev, WUCSR, &val);
-		if (ret < 0)
-			goto done;
-
-		val &= ~(WUCSR_MPEN_ | WUCSR_WAKE_EN_);
-
-		ret = smsc95xx_write_reg_nopm(dev, WUCSR, val);
-		if (ret < 0)
-			goto done;
-
-		ret = smsc95xx_read_reg_nopm(dev, PM_CTRL, &val);
-		if (ret < 0)
-			goto done;
-
-		val &= ~(PM_CTL_ED_EN_ | PM_CTL_WOL_EN_);
-
-		ret = smsc95xx_write_reg_nopm(dev, PM_CTRL, val);
-		if (ret < 0)
-			goto done;
-
-		ret = smsc95xx_enter_suspend2(dev);
 		goto done;
 	}
 
@@ -1656,15 +1708,20 @@ static int smsc95xx_suspend(struct usb_interface *intf, pm_message_t message)
 	smsc95xx_start_rx_path(dev, 1);
 
 	/* some wol options are enabled, so enter SUSPEND0 */
-	netdev_info(dev->net, "entering SUSPEND0 mode\n");
-	ret = smsc95xx_enter_suspend0(dev);
+	/* Instead of suspend0 entering suspend1 to save power */
+	netdev_info(dev->net, "entering SUSPEND1 mode\n");
+	ret = smsc95xx_enter_suspend1(dev);
+	goto done;
 
+done1:
+	reset_link = true;
+	return ret;
 done:
 	/*
 	 * TODO: resume() might need to handle the suspend failure
 	 * in system sleep
 	 */
-	if (ret && PMSG_IS_AUTO(message))
+	if (ret && PMSG_IS_AUTO(message) && !(pdata->suspend_flags & SUSPEND_NETDETACH))
 		usbnet_resume(intf);
 	return ret;
 }
@@ -1712,6 +1769,11 @@ static int smsc95xx_resume(struct usb_interface *intf)
 	ret = usbnet_resume(intf);
 	if (ret < 0)
 		netdev_warn(dev->net, "usbnet_resume error\n");
+
+	if ((reset_link == true) && (suspend_flags & SUSPEND_NETDETACH)) {
+		reset_link = false;
+		ret = smsc95xx_link_reset(dev);
+	}
 
 	return ret;
 }
@@ -1892,6 +1954,20 @@ static int smsc95xx_manage_power(struct usbnet *dev, int on)
 	return 0;
 }
 
+void smsc95xx_disconnect(struct usb_interface *intf)
+{
+	struct smsc95xx_priv *pdata;
+	struct usbnet *dev = usb_get_intfdata(intf);
+
+	if (!dev)
+		return;
+	pdata = (struct smsc95xx_priv *)(dev->data[0]);
+
+	if (timer_pending(&pdata->link_timer))
+		del_timer_sync(&pdata->link_timer);
+	usbnet_disconnect(intf);
+}
+
 static const struct driver_info smsc95xx_info = {
 	.description	= "smsc95xx USB 2.0 Ethernet",
 	.bind		= smsc95xx_bind,
@@ -2007,7 +2083,7 @@ static struct usb_driver smsc95xx_driver = {
 	.suspend	= smsc95xx_suspend,
 	.resume		= smsc95xx_resume,
 	.reset_resume	= smsc95xx_resume,
-	.disconnect	= usbnet_disconnect,
+	.disconnect	= smsc95xx_disconnect,
 	.disable_hub_initiated_lpm = 1,
 	.supports_autosuspend = 1,
 };

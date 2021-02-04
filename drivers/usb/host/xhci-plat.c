@@ -17,6 +17,13 @@
 
 #include "xhci.h"
 
+#ifdef CONFIG_MTK_XHCI
+#include <linux/ssusb/ssusb.h>
+#endif
+#include "xhci-mtk.h"
+#include "xhci-mtk-test.h"
+
+
 static void xhci_plat_quirks(struct device *dev, struct xhci_hcd *xhci)
 {
 	/*
@@ -25,12 +32,34 @@ static void xhci_plat_quirks(struct device *dev, struct xhci_hcd *xhci)
 	 * dev struct in order to setup MSI
 	 */
 	xhci->quirks |= XHCI_PLAT;
+	/*
+	 * CC: MTK host controller gives a spurious successful event after a
+	 * short transfer. Ignore it.
+	 */
+	xhci->quirks |= XHCI_SPURIOUS_SUCCESS;
+	xhci->quirks |= XHCI_LPM_SUPPORT;
+	xhci->quirks |= XHCI_MTK_HOST;
 }
 
 /* called during probe() after chip reset completes */
 static int xhci_plat_setup(struct usb_hcd *hcd)
 {
-	return xhci_gen_setup(hcd, xhci_plat_quirks);
+	struct xhci_hcd *xhci;
+	int ret;
+
+	ret = xhci_gen_setup(hcd, xhci_plat_quirks);
+	if (ret)
+		return ret;
+	xhci = hcd_to_xhci(hcd);
+	if (!usb_hcd_is_primary_hcd(hcd))
+		return 0;
+	if (xhci->quirks & XHCI_MTK_HOST) {
+		ret = xhci_mtk_init_quirk(xhci);
+		if (!ret)
+			return ret;
+	}
+	kfree(xhci);
+	return ret;
 }
 
 static const struct hc_driver xhci_plat_xhci_driver = {
@@ -146,6 +175,10 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	*((struct xhci_hcd **) xhci->shared_hcd->hcd_priv) = xhci;
 
 	ret = usb_add_hcd(xhci->shared_hcd, irq, IRQF_SHARED);
+	#ifdef CONFIG_MTK_XHCI
+	mtk_xhci_set(xhci);
+	#endif
+	xhci_mtk_test_creat_sysfs(hcd);
 	if (ret)
 		goto put_usb3_hcd;
 
@@ -181,16 +214,60 @@ static int xhci_plat_remove(struct platform_device *dev)
 	iounmap(hcd->regs);
 	release_mem_region(hcd->rsrc_start, hcd->rsrc_len);
 	usb_put_hcd(hcd);
+	if (xhci->quirks & XHCI_MTK_HOST) {
+		xhci_mtk_exit_quirk(xhci);
+		xhci_mtk_test_destroy_sysfs();
+	}
 	kfree(xhci);
 
 	return 0;
 }
+#if defined(CONFIG_PM) && defined(CONFIG_MTK_XHCI)
+
+int xhci_plat_suspend(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct ssusb_xhci_pdata	*pdata = dev_get_platdata(dev);
+	struct usb_hcd	*hcd = platform_get_drvdata(pdev);
+	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
+
+	if (pdata->need_str) {
+		xhci_warn(xhci, "%s()\n", __func__);
+		xhci_str_suspend(xhci);
+	}
+	return 0;
+}
+
+int xhci_plat_resume(struct device *dev)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct ssusb_xhci_pdata	*pdata = dev_get_platdata(dev);
+	struct usb_hcd	*hcd = platform_get_drvdata(pdev);
+	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
+
+	if (pdata->need_str) {
+		xhci_warn(xhci, "%s()\n", __func__);
+		xhci_str_resume(xhci);
+	}
+	return 0;
+}
+static const struct dev_pm_ops xhci_plat_pm_ops = {
+	.suspend_noirq = xhci_plat_suspend,
+	.resume_noirq = xhci_plat_resume,
+};
+
+#define DEV_PM_OPS	(&xhci_plat_pm_ops)
+#else
+#define DEV_PM_OPS	NULL
+#endif	/* CONFIG_PM */
+
 
 static struct platform_driver usb_xhci_driver = {
 	.probe	= xhci_plat_probe,
 	.remove	= xhci_plat_remove,
 	.driver	= {
 		.name = "xhci-hcd",
+		.pm = DEV_PM_OPS,
 	},
 };
 MODULE_ALIAS("platform:xhci-hcd");

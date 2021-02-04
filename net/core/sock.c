@@ -135,6 +135,9 @@
 
 #include <trace/events/sock.h>
 
+#include <net/af_unix.h>
+
+
 #ifdef CONFIG_INET
 #include <net/tcp.h>
 #endif
@@ -313,7 +316,7 @@ static struct lock_class_key af_callback_keys[AF_MAX];
 /* Run time adjustable parameters. */
 __u32 sysctl_wmem_max __read_mostly = SK_WMEM_MAX;
 EXPORT_SYMBOL(sysctl_wmem_max);
-__u32 sysctl_rmem_max __read_mostly = SK_RMEM_MAX;
+__u32 sysctl_rmem_max __read_mostly = (SK_RMEM_MAX*8);
 EXPORT_SYMBOL(sysctl_rmem_max);
 __u32 sysctl_wmem_default __read_mostly = SK_WMEM_MAX;
 __u32 sysctl_rmem_default __read_mostly = SK_RMEM_MAX;
@@ -727,7 +730,7 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 		val = min_t(u32, val, sysctl_wmem_max);
 set_sndbuf:
 		sk->sk_userlocks |= SOCK_SNDBUF_LOCK;
-		sk->sk_sndbuf = max_t(u32, val * 2, SOCK_MIN_SNDBUF);
+		sk->sk_sndbuf = max_t(int, val * 2, SOCK_MIN_SNDBUF);
 		/* Wake up sending tasks if we upped the value. */
 		sk->sk_write_space(sk);
 		break;
@@ -763,7 +766,7 @@ set_rcvbuf:
 		 * returning the value we actually used in getsockopt
 		 * is the most desirable behavior.
 		 */
-		sk->sk_rcvbuf = max_t(u32, val * 2, SOCK_MIN_RCVBUF);
+		sk->sk_rcvbuf = max_t(int, val * 2, SOCK_MIN_RCVBUF);
 		break;
 
 	case SO_RCVBUFFORCE:
@@ -1467,6 +1470,8 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 
 		sock_copy(newsk, sk);
 
+		newsk->sk_prot_creator = sk->sk_prot;
+
 		/* SANITY */
 		get_net(sock_net(newsk));
 		sk_node_init(&newsk->sk_node);
@@ -1743,6 +1748,90 @@ static long sock_wait_for_wmem(struct sock *sk, long timeo)
 }
 
 
+//debug funcion
+
+static int sock_dump_info(struct sock *sk)
+{
+	/*dump receiver queue 128 bytes
+	//struct sk_buff *skb;
+	//char skbmsg[128];
+	//dump receiver queue 128 bytes end*/
+
+	if (sk->sk_family == AF_UNIX) {
+		struct unix_sock *u = unix_sk(sk);
+		struct sock *other = NULL;
+		if ((u->path.dentry != NULL)
+		    && (u->path.dentry->d_iname != NULL))
+		{
+			pr_debug("sockdbg" "socket-Name:%s\n",
+				 u->path.dentry->d_iname);
+
+		} else {
+			pr_debug("sockdbg" "socket Name (NULL)\n");
+		}
+
+		if (sk->sk_socket && SOCK_INODE(sk->sk_socket)) {
+			pr_debug("sockdbg" "socket Inode[%lu]\n",
+				 SOCK_INODE(sk->sk_socket)->i_ino);
+		}
+
+		other = unix_sk(sk)->peer;
+		if (!other) {
+			pr_debug("sockdbg" "peer is (NULL)\n");
+		} else {
+
+			if ((((struct unix_sock *)other)->path.dentry != NULL)
+			    && (((struct unix_sock *)other)->path.dentry->
+				d_iname != NULL))
+			{
+				pr_debug("sockdbg" "Peer Name:%s\n",
+					 ((struct unix_sock *)other)->path.
+					 dentry->d_iname);
+			} else {
+				pr_debug("sockdbg" "Peer Name (NULL)\n");
+			}
+
+			if (other->sk_socket && SOCK_INODE(other->sk_socket)) {
+				pr_debug("sockdbg" "Peer Inode [%lu]\n",
+					 SOCK_INODE(other->sk_socket)->i_ino);
+			}
+
+			pr_debug("sockdbg" "Peer Recieve Queue len:%d\n",
+				 other->sk_receive_queue.qlen);
+
+			/*dump receiver queue 128 bytes*/
+			/* if ((skb = skb_peek_tail(&other->sk_receive_queue)) == NULL) {
+
+			   printk(KERN_INFO "sockdbg: Peer Recieve Queue is null (warning)\n");
+			   }else{
+			   int i =0 ,len=0;
+			   if((skb->len !=0) && (skb->data != NULL)){
+
+			   if(skb->len >= 127){
+			   len = 127 ;
+			   }else
+			   {
+			   len = skb->len ;
+			   }
+			   for (i=0;i<len;i++)
+			   sprintf(skbmsg+i, "%x", skb->data[i]);
+
+			   skbmsg[len]= '\0' ;
+
+			   printk(KERN_INFO "sockdbg: Peer Recieve Queue dump(%d bytes):%s\n", len, skbmsg);
+
+			   }else{
+			   printk(KERN_INFO "sockdbg: Peer Recieve skb error\n");
+			   } */
+
+		}
+	}
+
+	return 0;
+}
+
+
+
 /*
  *	Generic send/receive buffer handlers
  */
@@ -1818,7 +1907,15 @@ struct sk_buff *sock_alloc_send_pskb(struct sock *sk, unsigned long header_len,
 			goto failure;
 		if (signal_pending(current))
 			goto interrupted;
+
+		sock_dump_info(sk);
+		pr_debug("sockdbg" "wait_for_wmem, timeo =%ld, wmem =%d, snd buf =%d\n",
+			 timeo, atomic_read(&sk->sk_wmem_alloc), sk->sk_sndbuf);
+
 		timeo = sock_wait_for_wmem(sk, timeo);
+
+		pr_debug("sockdbg" "wait_for_wmem done, header_len=0x%lx, data_len=0x%lx,timeo =%ld\n",
+			 header_len, data_len, timeo);
 	}
 
 	skb_set_owner_w(skb, sk);

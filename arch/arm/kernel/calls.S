@@ -107,7 +107,7 @@
 /* 95 */	CALL(sys_fchown16)
 		CALL(sys_getpriority)
 		CALL(sys_setpriority)
-		CALL(sys_ni_syscall)		/* was sys_profil */
+		CALL(sys_trapz)	/* was sys_profil */
 		CALL(sys_statfs)
 /* 100 */	CALL(sys_fstatfs)
 		CALL(sys_ni_syscall)		/* sys_ioperm */
@@ -389,6 +389,11 @@
 		CALL(sys_process_vm_writev)
 		CALL(sys_kcmp)
 		CALL(sys_finit_module)
+/* 380 */	CALL(sys_ni_syscall)		/* reserved sys_sched_setattr */
+		CALL(sys_ni_syscall)		/* reserved sys_sched_getattr */
+		CALL(sys_ni_syscall)		/* reserved sys_renameat2     */
+		CALL(sys_seccomp)
+
 #ifndef syscalls_counted
 .equ syscalls_padding, ((NR_syscalls + 3) & ~3) - NR_syscalls
 #define syscalls_counted

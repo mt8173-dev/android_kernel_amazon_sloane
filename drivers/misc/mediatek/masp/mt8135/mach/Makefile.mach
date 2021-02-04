@@ -1,0 +1,25 @@
+#######################################
+# Sepcify source files
+#######################################
+ifneq ($(CONFIG_MTK_IN_HOUSE_TEE_SUPPORT),)
+#mach_obj += mach/sec_lib.o
+mach_obj += $(MTK_PLATFORM)/mach/mtee/sec_uid.o
+mach_obj += $(MTK_PLATFORM)/mach/mtee/hacc_lib.o
+mach_obj += $(MTK_PLATFORM)/mach/mtee/hacc_export.o
+mach_obj += $(MTK_PLATFORM)/mach/mtee/hacc_hk.o
+mach_obj += $(MTK_PLATFORM)/mach/mtee/hacc_sk.o
+
+ccflags-y += -I$(srctree)/include
+ccflags-y += -I$(srctree)/include/trustzone
+
+else
+#mach_obj += $(MTK_PLATFORM)/mach/sec_lib.o
+#mach_obj += $(MTK_PLATFORM)/mach/sec_uid.o
+#mach_obj += $(MTK_PLATFORM)/mach/hacc_lib.o
+#mach_obj += $(MTK_PLATFORM)/mach/hacc_export.o
+#mach_obj += $(MTK_PLATFORM)/mach/hacc_hk.o
+#mach_obj += $(MTK_PLATFORM)/mach/hacc_sk.o
+endif
+
+# HEADER FILE
+ccflags-y += -I$(src)/asf/asf_inc
