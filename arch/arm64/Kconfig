@@ -156,7 +156,8 @@ config ARCH_MT8173
 		select HAVE_MTK_IN_HOUSE_TEE_SUPPORT
 		select USB_ARCH_HAS_XHCI
 		select PINCTRL
-
+	    select HAVE_ARCH_MMAP_RND_BITS
+	    select HAVE_ARCH_MMAP_RND_COMPAT_BITS
         help
           This enable support for MediaTek MT8173.
 
