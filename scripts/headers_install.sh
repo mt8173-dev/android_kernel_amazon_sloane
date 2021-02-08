@@ -23,21 +23,24 @@ shift
 SRCDIR="$1"
 shift
 
-
 # Iterate through files listed on command line
 
-FTOP=$(dirname ${srctree})
-STOP=$(dirname ${FTOP})
-TTOP=$(dirname ${STOP})
-TOP=$(dirname ${TTOP})
-
-
 FILE=
-trap 'rm -f "$OUTDIR/$FILE"' EXIT
+trap 'rm -f "$OUTDIR/$FILE" "$OUTDIR/$FILE.sed"' EXIT
 for i in "$@"
 do
 	FILE="$(basename "$i")"
-	${TOP}/bionic/libc/kernel/tools/clean_header.py -k $(dirname "$SRCDIR/$i") "$SRCDIR/$i" \
+	sed -r \
+		-e 's/([ \t(])(__user|__force|__iomem)[ \t]/\1/g' \
+		-e 's/__attribute_const__([ \t]|$)/\1/g' \
+		-e 's@^#include <linux/compiler.h>@@' \
+		-e 's/(^|[^a-zA-Z0-9])__packed([^a-zA-Z0-9_]|$)/\1__attribute__((packed))\2/g' \
+		-e 's/(^|[ \t(])(inline|asm|volatile)([ \t(]|$)/\1__\2__\3/g' \
+		-e 's@#(ifndef|define|endif[ \t]*/[*])[ \t]*_UAPI@#\1 @' \
+		"$SRCDIR/$i" > "$OUTDIR/$FILE.sed" || exit 1
+	scripts/unifdef -U__KERNEL__ -D__EXPORTED_HEADERS__ "$OUTDIR/$FILE.sed" \
 		> "$OUTDIR/$FILE"
+	[ $? -gt 1 ] && exit 1
+	rm -f "$OUTDIR/$FILE.sed"
 done
 trap - EXIT
