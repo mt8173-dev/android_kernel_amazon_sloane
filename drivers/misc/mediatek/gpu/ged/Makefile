@@ -5,9 +5,9 @@ GED_TOP = $(srctree)/drivers/misc/mediatek/gpu/ged
 VER:=eng
 
 ifneq ($(strip $(TARGET_BUILD_VARIANT)),)
-ifneq ($(strip $(TARGET_BUILD_VARIANT)),eng)
+#ifneq ($(strip $(TARGET_BUILD_VARIANT)),eng)
 VER:=user
-endif
+#endif
 endif
 
 ccflags-y += \
