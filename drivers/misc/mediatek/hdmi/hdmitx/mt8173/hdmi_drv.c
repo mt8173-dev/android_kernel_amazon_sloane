@@ -96,7 +96,7 @@ static struct timer_list r_hdmi_timer;
 static struct timer_list r_cec_timer;
 unsigned char hdmi2_debug = 0;
 unsigned char hdmi_dpi_output = 0;
-unsigned char hdmi2_force_output = 0;
+unsigned char hdmi2_force_output = 2;
 unsigned int hdmistate_debug = 0xfff;
 bool resolution_change = FALSE;
 unsigned int hdmisave_irq_reg[SAVELENGTH][7];
