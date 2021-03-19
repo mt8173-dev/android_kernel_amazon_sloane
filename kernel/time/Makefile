@@ -1,3 +1,5 @@
+ccflags-y += -Wno-maybe-uninitialized
+
 obj-y += timekeeping.o ntp.o clocksource.o jiffies.o timer_list.o
 obj-y += timeconv.o posix-clock.o alarmtimer.o
 
