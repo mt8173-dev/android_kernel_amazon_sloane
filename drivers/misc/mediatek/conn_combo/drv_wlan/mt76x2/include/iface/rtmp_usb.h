@@ -186,13 +186,6 @@ VOID RT28xxUsbAsicRadioOff(struct _RTMP_ADAPTER *pAd);
 VOID RT28xxUsbAsicWOWEnable(struct _RTMP_ADAPTER *pAd);
 VOID RT28xxUsbAsicWOWDisable(struct _RTMP_ADAPTER *pAd);
 
-#ifdef RXPKT_THREAD
-VOID RtmpOsRxPktUp(RTMP_OS_TASK *prxPktTask);
-INT RTRxPktThread(IN ULONG Context);
-VOID RtmpCleanupRxPktQueue(struct _RTMP_ADAPTER *pAd, IN PQUEUE_HEADER pQueue);
-#endif /* RXPKT_THREAD */
-
-
 struct usb_control {
 	BOOLEAN usb_aggregation;
 };

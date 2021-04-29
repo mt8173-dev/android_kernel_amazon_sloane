@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 #define RTMP_MODULE_OS
@@ -35,8 +36,6 @@
 #include "debugfs.h"
 #endif
 
-#include <linux/gpio.h>
-
 extern USB_DEVICE_ID rtusb_dev_id[];
 extern INT const rtusb_usb_id_len;
 
@@ -55,7 +54,7 @@ module_param(profilePath, charp, S_IRUGO);
 static VOID *gpAd = (VOID *) NULL;
 #endif /* endif */
 
-static int isreload;
+
 static VOID rtusb_vendor_specific_check(struct usb_device *dev, VOID *pAd)
 {
 
@@ -74,7 +73,7 @@ int rtusb_fast_probe(VOID *handle, VOID **ppAd, struct usb_interface *intf)
 	struct net_device *net_dev = NULL;
 	struct usb_device *usb_dev = NULL;
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	UCHAR WOWEable, WOWRun;
+	UCHAR Flag1;
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 
 	pCookie = RTMPCheckOsCookie(handle, &pAd);
@@ -101,7 +100,7 @@ int rtusb_fast_probe(VOID *handle, VOID **ppAd, struct usb_interface *intf)
 #endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
 
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	RTMP_DRIVER_ADAPTER_RT28XX_WOW_STATUS(pAd, &WOWEable);
+	RTMP_DRIVER_ADAPTER_RT28XX_WOW_STATUS(pAd, &Flag1);
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 
 #ifdef USB_SUPPORT_SELECTIVE_SUSPEND
@@ -119,7 +118,7 @@ int rtusb_fast_probe(VOID *handle, VOID **ppAd, struct usb_interface *intf)
 	RTMP_DRIVER_ADAPTER_SUSPEND_CLEAR(pAd);
 
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	if (WOWEable == FALSE)
+	if (Flag1 == FALSE)
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 		RTMP_DRIVER_ADAPTER_RT28XX_USB_ASICRADIO_ON(pAd);
 
@@ -129,20 +128,13 @@ int rtusb_fast_probe(VOID *handle, VOID **ppAd, struct usb_interface *intf)
 #endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
 
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	RTMP_DRIVER_ADAPTER_RT28XX_WOW_RUNSTATUS(pAd, &WOWRun);
-
-	if ((WOWEable == TRUE) && (WOWRun == TRUE))
-			RTMP_DRIVER_ADAPTER_RT28XX_WOW_DISABLE(pAd);
-
-	if (WOWRun == TRUE)
-		;
+	if (Flag1 == TRUE)
+		RTMP_DRIVER_ADAPTER_RT28XX_WOW_DISABLE(pAd);
 	else
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 	{
-
-		DBGPRINT(RT_DEBUG_ERROR, ("%s :radio_on\n", __func__));
 		RTMP_DRIVER_ADAPTER_SUSPEND_CLEAR(pAd);
-		RTMP_DRIVER_ADAPTER_RT28XX_CMD_RADIO_ON(pAd);
+		RTMP_DRIVER_ADAPTER_RT28XX_USB_ASICRADIO_ON(pAd);
 
 		RTMP_DRIVER_USB_RESUME(pAd);
 	}
@@ -205,7 +197,7 @@ static int WowUnRegisterInputDevice(RTMP_ADAPTER *pAd)
 
 static int WowInputReportKey(RTMP_ADAPTER *pAd)
 {
-	DBGPRINT(RT_DEBUG_ERROR, ("%s, send KEY_POWER to input device!\n", __func__));
+	DBGPRINT(RT_DEBUG_TRACE, ("%s, send KEY_POWER to input device!\n", __func__));
 
 	input_report_key(pAd->input_key, KEY_POWER, 1);
 	input_sync(pAd->input_key);
@@ -499,10 +491,6 @@ static int rt2870_probe(struct usb_interface *intf,
 #ifdef WOW_INPUTDEV_SUPPORT
 	WowRegisterInputDevice(pAd);
 #endif /* WOW_INPUTDEV_SUPPORT */
-	if (!rtusb_reloadcheck())
-		rtusb_reloadset(1); /* probe completed */
-	else
-		rtusb_reloadset(3); /* reload ready */
 	DBGPRINT(RT_DEBUG_TRACE, ("<===rt2870_probe()!\n"));
 
 	return 0;
@@ -620,16 +608,15 @@ static int rtusb_suspend(struct usb_interface *intf, pm_message_t state)
 {
 	struct net_device *net_dev;
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	UCHAR WOWEnable, INFRA_On, WOWRun;
+	UCHAR Flag1;
 #endif /* endif */
 	VOID *pAd = usb_get_intfdata(intf);
 
-	DBGPRINT(RT_DEBUG_ERROR, ("===> rtusb_suspend()\n"));
+	DBGPRINT(RT_DEBUG_TRACE, ("===> rtusb_suspend()\n"));
 	if (!RTMP_TEST_FLAG((PRTMP_ADAPTER) pAd, fRTMP_ADAPTER_START_UP))
 		goto out;
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	RTMP_DRIVER_ADAPTER_RT28XX_WOW_STATUS(pAd, &WOWEnable);
-	RTMP_DRIVER_ADAPTER_RT28XX_INFRA_STATUS(pAd, &INFRA_On);
+	RTMP_DRIVER_ADAPTER_RT28XX_WOW_STATUS(pAd, &Flag1);
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 
 #ifdef USB_SUPPORT_SELECTIVE_SUSPEND
@@ -637,9 +624,7 @@ static int rtusb_suspend(struct usb_interface *intf, pm_message_t state)
 	DBGPRINT(RT_DEBUG_ERROR, ("%s():=>autosuspend\n", __func__));
 
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	if (WOWEnable == TRUE)
-		;
-	else
+	if (Flag1 == FALSE)
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 	{
 /*	if(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF)) */
@@ -656,27 +641,12 @@ static int rtusb_suspend(struct usb_interface *intf, pm_message_t state)
 #endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
 
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	/* Mask to prevent the case !INFRA_ON, !GO_ON, which will not enable wow for RC */
-	/* if ((WOWEnable == TRUE) && ((INFRA_On == TRUE) || RTMP_CFG80211_VIF_P2P_GO_ON(pAd))) { */
-	if (WOWEnable == TRUE) {
-		if (RTMP_CFG80211_VIF_P2P_GO_ON(pAd) && (!IsRemotePassiveCh(pAd)))
-			AsicDisableSync(pAd);
-
+	if (Flag1 == TRUE) {
 		RTMP_DRIVER_ADAPTER_RT28XX_WOW_ENABLE(pAd);
 #ifdef WCX_WOW_SUPPORT
 		enable_irq(((struct _RTMP_ADAPTER *)pAd)->wow_irq);
 #endif /* WCX_WOW_SUPPORT */
-	}
-	RTMP_DRIVER_ADAPTER_RT28XX_WOW_RUNSTATUS(pAd, &WOWRun);
-
-	if (WOWRun == FALSE) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s :radio_off\n",  __func__));
-		RTMP_DRIVER_ADAPTER_RT28XX_CMD_RADIO_OFF(pAd);
-	}
-
-	if (WOWRun == TRUE)
-		;
-	else
+	} else
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 	{
 		DBGPRINT(RT_DEBUG_TRACE, ("%s()=>\n", __func__));
@@ -687,7 +657,7 @@ static int rtusb_suspend(struct usb_interface *intf, pm_message_t state)
 		RTMP_DRIVER_USB_SUSPEND(pAd, netif_running(net_dev));
 	}
 out:
-	DBGPRINT(RT_DEBUG_ERROR, ("<=%s()\n", __func__));
+	DBGPRINT(RT_DEBUG_TRACE, ("<=%s()\n", __func__));
 	return 0;
 }
 
@@ -704,7 +674,7 @@ static int rtusb_resume(struct usb_interface *intf)
 	struct net_device *net_dev;
 	VOID *pAd = usb_get_intfdata(intf);
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	UCHAR WOWEnable, WOWRun;
+	UCHAR Flag1;
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 
 #ifdef USB_SUPPORT_SELECTIVE_SUSPEND
@@ -712,12 +682,12 @@ static int rtusb_resume(struct usb_interface *intf)
 	UCHAR Flag;
 #endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
 
-	DBGPRINT(RT_DEBUG_ERROR, ("%s()=>\n", __func__));
+	DBGPRINT(RT_DEBUG_TRACE, ("%s()=>\n", __func__));
 	if (!RTMP_TEST_FLAG((PRTMP_ADAPTER) pAd, fRTMP_ADAPTER_START_UP))
 		goto out;
 
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	RTMP_DRIVER_ADAPTER_RT28XX_WOW_STATUS(pAd, &WOWEnable);
+	RTMP_DRIVER_ADAPTER_RT28XX_WOW_STATUS(pAd, &Flag1);
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 
 #ifdef USB_SUPPORT_SELECTIVE_SUSPEND
@@ -736,7 +706,7 @@ static int rtusb_resume(struct usb_interface *intf)
 	RTMP_DRIVER_ADAPTER_SUSPEND_CLEAR(pAd);
 
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	if (WOWEnable == FALSE)
+	if (Flag1 == FALSE)
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 		/*RT28xxUsbAsicRadioOn(pAd); */
 		RTMP_DRIVER_ADAPTER_RT28XX_USB_ASICRADIO_ON(pAd);
@@ -747,31 +717,19 @@ static int rtusb_resume(struct usb_interface *intf)
 #endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
 
 #if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	RTMP_DRIVER_ADAPTER_RT28XX_WOW_RUNSTATUS(pAd, &WOWRun);
-
-	if ((WOWEnable == TRUE) && (WOWRun == TRUE)) {
+	if (Flag1 == TRUE) {
 		RTMP_DRIVER_ADAPTER_RT28XX_WOW_DISABLE(pAd);
-
-		if (RTMP_CFG80211_VIF_P2P_GO_ON(pAd) && (!IsRemotePassiveCh(pAd)))
-			AsicEnableApBssSync(pAd);
-
-
 #ifdef WCX_WOW_SUPPORT
 		if (((struct _RTMP_ADAPTER *)pAd)->wow_trigger == 0)
 			disable_irq_nosync(((struct _RTMP_ADAPTER *)pAd)->wow_irq);
 		else
 			((struct _RTMP_ADAPTER *)pAd)->wow_trigger = 0;
 #endif /* WCX_WOW_SUPPORT */
-	}
-
-	if (WOWEnable == TRUE)
-		;
-	else
+	} else
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 	{
 		RTMP_DRIVER_ADAPTER_SUSPEND_CLEAR(pAd);
-		DBGPRINT(RT_DEBUG_ERROR, ("%s :radio_on\n", __func__));
-		RTMP_DRIVER_ADAPTER_RT28XX_CMD_RADIO_ON(pAd);
+		RTMP_DRIVER_ADAPTER_RT28XX_USB_ASICRADIO_ON(pAd);
 
 		RTMP_DRIVER_USB_RESUME(pAd);
 
@@ -782,7 +740,7 @@ static int rtusb_resume(struct usb_interface *intf)
 		netif_wake_queue(net_dev);
 	}
 out:
-	DBGPRINT(RT_DEBUG_ERROR, ("<=%s()\n", __func__));
+	DBGPRINT(RT_DEBUG_TRACE, ("<=%s()\n", __func__));
 	return 0;
 }
 #endif /* RESUME_WITH_USB_RESET_SUPPORT */
@@ -958,67 +916,6 @@ static VOID __exit rtusb_exit(void)
 	printk("<--- rtusb exit\n");
 }
 
-#if 0
-#define WIFI_HW_RESET 104
-
-static void wifi_hw_reset(void)
-{
-	int retval;
-
-	retval = gpio_request(WIFI_HW_RESET, "wifi_hw_rst");
-	if (retval) {
-		DBGPRINT(RT_DEBUG_OFF, ("fail to requeset wifi_hw_rst :%d\n", WIFI_HW_RESET));
-		return;
-	}
-	gpio_direction_output(WIFI_HW_RESET, 1);
-
-	gpio_set_value(WIFI_HW_RESET, 0);
-	DBGPRINT(RT_DEBUG_OFF, ("%s: gpio:%d (val: %d)\n", __func__, WIFI_HW_RESET, gpio_get_value(WIFI_HW_RESET)));
-	mdelay(10);
-	gpio_set_value(WIFI_HW_RESET, 1);
-	DBGPRINT(RT_DEBUG_OFF, ("%s: gpio:%d (val: %d)\n", __func__, WIFI_HW_RESET, gpio_get_value(WIFI_HW_RESET)));
-	gpio_free(WIFI_HW_RESET);
-}
-#endif
-
-void rtusb_load(void)
-{
-	DBGPRINT(RT_DEBUG_OFF, ("<=%s()\n", __func__));
-	usb_register(&rtusb_driver);
-	DBGPRINT(RT_DEBUG_OFF, ("=>%s()\n", __func__));
-}
-
-void rtusb_unload(PRTMP_ADAPTER pAd)
-{
-	struct net_device *netdev = NULL;
-	int wait_cnt = 0;
-
-	DBGPRINT(RT_DEBUG_OFF, ("<=%s()\n", __func__));
-	/* unload before HW reset */
-	usb_deregister(&rtusb_driver);
-	netdev = dev_get_by_name(&init_net, "wlan0");
-	while (netdev != NULL && wait_cnt < 10) {
-		DBGPRINT(RT_DEBUG_OFF, ("=>%s()(%d) wait wlan0 unload\n", __func__, wait_cnt));
-		msleep(200);
-		wait_cnt++;
-		netdev = dev_get_by_name(&init_net, "wlan0");
-	}
-	rtusb_reloadset(2);
-	/* wifi_hw_reset(); */
-	msleep(1000); /* wait for reset */
-	DBGPRINT(RT_DEBUG_OFF, ("=>%s()\n", __func__));
-}
-
-void rtusb_reloadset(int val)
-{
-	isreload = val;
-}
-int rtusb_reloadcheck(void)
-{
-	/* wlan up = 0 wlan ready = 1
-	   wlan reload done not ready = 2 wlan reload ready = 3 */
-	return isreload;
-}
 #ifndef MULTI_INF_SUPPORT
 
 module_init(rtusb_init);

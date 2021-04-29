@@ -89,8 +89,6 @@
 #endif /* RT_CFG80211_SUPPORT */
 
 #include <linux/firmware.h>
-#include <linux/sched.h>
-
 
 #undef AP_WSC_INCLUDED
 #undef STA_WSC_INCLUDED
@@ -158,8 +156,6 @@ typedef struct usb_ctrlrequest devctrlrequest;
 extern const struct iw_handler_def rt28xx_iw_handler_def;
 
 #ifdef SINGLE_SKU_V2
-#define SINGLE_SKU_TABLE_FILE_PATH	"/etc/Wireless/RT2870STA/"
-#define SINGLE_SKU_TABLE_PRELOAD	"/etc/Wireless/RT2870STA/SingleSKU_preload.dat"
 #define SINGLE_SKU_TABLE_FILE_NAME	"/etc/Wireless/RT2870STA/SingleSKU.dat"
 #ifdef DYNAMIC_PWR_TABLE_MAPPED_BY_COUNTRY_REGION
 #define DYNAMIC_SINGLE_SKU_TABLE_FILE_NAME_PREFIX   "/etc/Wireless/RT2870STA/SingleSKU"
@@ -932,9 +928,6 @@ void linux_pci_unmap_single(void *handle, ra_dma_addr_t dma_addr, size_t size, i
 
 #define GET_OS_PKT_NEXT(_pkt) \
 		(RTPKT_TO_OSPKT(_pkt)->next)
-
-#define GET_OS_PKT_PRIORITY(_pkt) \
-		(RTPKT_TO_OSPKT(_pkt)->priority)
 
 #define OS_PKT_CLONED(_pkt)		skb_cloned(RTPKT_TO_OSPKT(_pkt))
 #define OS_PKT_COPY(_pkt)		skb_copy(RTPKT_TO_OSPKT(_pkt), GFP_ATOMIC)

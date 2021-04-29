@@ -35,7 +35,6 @@
 #include "rt_os_util.h"
 #include "dot11i_wpa.h"
 #include <linux/rtnetlink.h>
-#include "rt_config.h"
 
 #if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 #include "../../../../../../net/nat/hw_nat/ra_nat.h"
@@ -687,102 +686,38 @@ void RtmpOsBufPktRcvHandle(PNET_DEV pNetDev, PUCHAR pRxRspEvtPayload, UINT32 Pkt
 	UINT32 PayloadLen = 0;
 	struct sk_buff *pRxPkt = NULL;
 
-	HEADER_802_11 *hdr80211 = (HEADER_802_11 *)pRxRspEvtPayload;
-	FRAME_CONTROL fc80211 = hdr80211->FC;
-
-
 	DBGPRINT(RT_DEBUG_TRACE, ("[bufPkt] pRxRspEvtPayload:%p %d\n", pRxRspEvtPayload, PktLen));
 	DBGPRINT(RT_DEBUG_TRACE, ("RAW data:\n"));
 	for (i = 0; i < PktLen; i++)
 		DBGPRINT(RT_DEBUG_TRACE, ("%02x%s",
 		pRxRspEvtPayload[i], (i+1)%16 == 0 ? "\n":" "));
-	DBGPRINT(RT_DEBUG_OFF, ("len:%d\n", i));
+	DBGPRINT(RT_DEBUG_TRACE, ("len:%d\n", i));
 
 	/* Parsing 80211 header */
 	A1 = &pRxRspEvtPayload[FrameControlLen+DurationLen];
 	A2 = A1 + MAC_ADDR_LEN;
 	A3 = A2 + MAC_ADDR_LEN;
 
-	DBGPRINT(RT_DEBUG_OFF, ("[bufPkt] A1=%02x:%02x:%02x:%02x:%02x:%02x\n", PRINT_MAC(A1)));
-	DBGPRINT(RT_DEBUG_OFF, ("[bufPkt] A2=%02x:%02x:%02x:%02x:%02x:%02x\n", PRINT_MAC(A2)));
-	DBGPRINT(RT_DEBUG_OFF, ("[bufPkt] A3=%02x:%02x:%02x:%02x:%02x:%02x\n", PRINT_MAC(A3)));
-	DBGPRINT(RT_DEBUG_OFF, ("[bufPkt] Seq=%u\n", hdr80211->Sequence));
+	DBGPRINT(RT_DEBUG_TRACE, ("[bufPkt] A1=%02x:%02x:%02x:%02x:%02x:%02x\n", PRINT_MAC(A1)));
+	DBGPRINT(RT_DEBUG_TRACE, ("[bufPkt] A2=%02x:%02x:%02x:%02x:%02x:%02x\n", PRINT_MAC(A2)));
+	DBGPRINT(RT_DEBUG_TRACE, ("[bufPkt] A3=%02x:%02x:%02x:%02x:%02x:%02x\n", PRINT_MAC(A3)));
 
-	if (fc80211.Type == FC_TYPE_MGMT) {
-		switch (fc80211.SubType) {
-		case SUBTYPE_PROBE_REQ:
-		DBGPRINT(RT_DEBUG_OFF, ("%s, Get PROBE_REQ\n", __func__));
-#ifdef RT_CFG80211_P2P_CONCURRENT_DEVICE
-		{
-			UINT32 freq = 0;
-			VOID *ad = NULL;
-			struct _RTMP_ADAPTER *pAd = NULL;
-			UCHAR ch = 0;
-			UCHAR *pkt = NULL;
-			PNET_DEV net_dev = NULL;
-			PCFG80211_CTRL pCfg80211_ctrl = NULL;
-
-			GET_PAD_FROM_NET_DEV(ad, pNetDev);
-			pAd = (struct _RTMP_ADAPTER *)ad;
-			pCfg80211_ctrl = &pAd->cfg80211_ctrl;
-
-			/* Check the P2P_GO exist in the VIF List */
-			if (pCfg80211_ctrl->Cfg80211VifDevSet.vifDevList.size <= 0) {
-				DBGPRINT(RT_DEBUG_ERROR, ("No P2P_GO exist\n"));
-				break;
-			}
-
-			net_dev = RTMP_CFG80211_FindVifEntry_ByType(pAd, RT_CMD_80211_IFTYPE_P2P_GO);
-			if (!net_dev) {
-				DBGPRINT(RT_DEBUG_ERROR, ("No net_dev\n"));
-				break;
-			}
-
-			if (!net_dev->ieee80211_ptr) {
-				DBGPRINT(RT_DEBUG_ERROR, ("ieee80211_ptr NULL\n"));
-				break;
-			}
-
-			os_alloc_mem(NULL, (UCHAR **) &pkt, PktLen);
-			if (!pkt) {
-				DBGPRINT(RT_DEBUG_ERROR, ("low on mem - packet dropped\n"));
-				break;
-			}
-			NdisZeroMemory(pkt, PktLen);
-			/* Copy data payload and mac header to skb */
-			NdisCopyMemory(pkt, pRxRspEvtPayload, PktLen);
-			ch = pAd->LatchRfRegs.Channel;
-			if (ch > 14)
-				freq = ieee80211_channel_to_frequency(ch, IEEE80211_BAND_5GHZ);
-			else
-				freq = ieee80211_channel_to_frequency(ch, IEEE80211_BAND_2GHZ);
-			DBGPRINT(RT_DEBUG_OFF, ("%s, report PROBE_REQ@freq:%u, len:%u\n"
-				, __func__, freq, PktLen));
-			CFG80211OS_RxMgmt(net_dev, freq, pkt, PktLen);
+	/* Get data payload */
+	for (i = LENGTH_802_11; i <= LENGTH_802_11_WITH_ADDR4; i++) {
+		if (RTMPEqualMemory(&pRxRspEvtPayload[i], &SNAP_identifier, SNAPLen)) {
+			pPayload = &pRxRspEvtPayload[i + LLCLen];
+			PayloadLen = PktLen - (i + LLCLen);
+			pEthType = pPayload - EthTypeLen;
+			DBGPRINT(RT_DEBUG_TRACE, ("[bufPkt] Payload idx(%d):%p\n",
+				i+LLCLen, pPayload));
+			break;
 		}
-#endif
-		break;
-		default:
-		DBGPRINT(RT_DEBUG_OFF, ("%s, other subtype %x\n", __func__, fc80211.SubType));
-		break;
-		}
-	} else if (fc80211.Type == FC_TYPE_DATA) {
-		/* Get data payload */
-		for (i = LENGTH_802_11; i <= LENGTH_802_11_WITH_ADDR4; i++) {
-			if (RTMPEqualMemory(&pRxRspEvtPayload[i], &SNAP_identifier, SNAPLen)) {
-				pPayload = &pRxRspEvtPayload[i + LLCLen];
-				PayloadLen = PktLen - (i + LLCLen);
-				pEthType = pPayload - EthTypeLen;
-				DBGPRINT(RT_DEBUG_OFF, ("[bufPkt] Payload idx(%d):%p\n",
-					i+LLCLen, pPayload));
-				break;
-			}
 	}
 	if (PayloadLen == 0) {
 		DBGPRINT(RT_DEBUG_ERROR, ("[bufPkt] Parsing error and drop buffered packet!\n"));
 		return;
 	}
-	DBGPRINT(RT_DEBUG_OFF, ("[bufPkt] pRxRspEvtPayload:%p PayloadLen(%d)\n",
+	DBGPRINT(RT_DEBUG_TRACE, ("[bufPkt] pRxRspEvtPayload:%p PayloadLen(%d)\n",
 		pRxRspEvtPayload, PayloadLen));
 	pRxPkt = dev_alloc_skb(PayloadLen + 2);
 	if (!pRxPkt)
@@ -799,17 +734,14 @@ void RtmpOsBufPktRcvHandle(PNET_DEV pNetDev, PUCHAR pRxRspEvtPayload, UINT32 Pkt
 
 	RtmpOsPktProtocolAssign(pRxPkt);
 
-	DBGPRINT(RT_DEBUG_OFF, ("Head\n"));
+	DBGPRINT(RT_DEBUG_TRACE, ("Head\n"));
 	for (ptr = pRxPkt->head, i = 0; ptr < pRxPkt->data; ptr++, i++)
-		DBGPRINT(RT_DEBUG_OFF, ("%02x%s", *ptr, (i+1)%16 == 0 ? "\n":" "));
-	DBGPRINT(RT_DEBUG_OFF, ("\nHead_len:%d\n\nData\n", i));
+		DBGPRINT(RT_DEBUG_TRACE, ("%02x%s", *ptr, (i+1)%16 == 0 ? "\n":" "));
+	DBGPRINT(RT_DEBUG_TRACE, ("\nHead_len:%d\n\nData\n", i));
 	for (ptr = pRxPkt->data, i = 0; ptr < GET_OS_PKT_DATATAIL(pRxPkt); ptr++, i++)
-		DBGPRINT(RT_DEBUG_OFF, ("%02x%s", *ptr, (i+1)%16 == 0 ? "\n":" "));
-	DBGPRINT(RT_DEBUG_OFF, ("\nData_len:%d\n", i));
+		DBGPRINT(RT_DEBUG_TRACE, ("%02x%s", *ptr, (i+1)%16 == 0 ? "\n":" "));
+	DBGPRINT(RT_DEBUG_TRACE, ("\nData_len:%d\n", i));
 	netif_rx(pRxPkt);
-
-	}
-
 }
 #endif
 

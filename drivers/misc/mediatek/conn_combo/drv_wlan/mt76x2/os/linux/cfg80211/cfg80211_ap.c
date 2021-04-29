@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2013, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -470,7 +471,7 @@ BOOLEAN CFG80211DRV_OpsBeaconAdd(VOID *pAdOrg, VOID *pData)
 	} else
 #endif
 	{
-		pAd->ApCfg.StaIdleTimeout = MAC_TABLE_LONG_AGEOUT_TIME;
+		pAd->ApCfg.StaIdleTimeout = MAC_TABLE_MIN_AGEOUT_TIME;
 		pMbss->StationKeepAliveTime = 10;
 	}
 #endif /* CONFIG_MULTI_CHANNEL */
@@ -1014,10 +1015,7 @@ INT CFG80211_ApStaDel(RTMP_ADAPTER *pAd, const UCHAR *mac)
 	} else {
 		MAC_TABLE_ENTRY *pEntry = MacTableLookup(pAd, mac);
 		if (pEntry)
-			if (pEntry->StaConnectTime > 0)
-				MlmeDeAuthAction(pAd, pEntry, REASON_NO_LONGER_VALID, FALSE);
-			else
-				DBGPRINT(RT_DEBUG_ERROR, ("Avoid debounce reconnect <1sec\n"));
+			MlmeDeAuthAction(pAd, pEntry, REASON_NO_LONGER_VALID, FALSE);
 		else
 			DBGPRINT(RT_DEBUG_ERROR, ("Can't find pEntry in ApStaDel\n"));
 	}

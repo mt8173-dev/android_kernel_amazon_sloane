@@ -1,14 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ****************************************************************************
 
     Module Name:
@@ -189,51 +191,46 @@ NDIS_STATUS RTMPReadParametersHook(RTMP_ADAPTER *pAd)
 	int i;
 #endif /*HOSTAPD_SUPPORT */
 
-	if (!pAd->profile_loaded) {
-		src = get_dev_profile(pAd);
-		if (src && *src) {
-			RtmpOSFSInfoChange(&osFSInfo, TRUE);
-			srcf = RtmpOSFileOpen(src, O_RDONLY, 0);
-			if (IS_FILE_OPEN_ERR(srcf)) {
-				DBGPRINT(RT_DEBUG_ERROR, ("Open file \"%s\" failed!\n", src));
-				retval = NDIS_STATUS_INVALID_DATA;
-				if (pAd->chipCap.default_profile)
-					retval =
-					RTMPSetProfileParameters(pAd, pAd->chipCap.default_profile);
+	src = get_dev_profile(pAd);
+	if (src && *src) {
+		RtmpOSFSInfoChange(&osFSInfo, TRUE);
+		srcf = RtmpOSFileOpen(src, O_RDONLY, 0);
+		if (IS_FILE_OPEN_ERR(srcf)) {
+			DBGPRINT(RT_DEBUG_ERROR, ("Open file \"%s\" failed!\n", src));
+			retval = NDIS_STATUS_INVALID_DATA;
+			if (pAd->chipCap.default_profile)
+				retval =
+				    RTMPSetProfileParameters(pAd, pAd->chipCap.default_profile);
 
-				DBGPRINT(RT_DEBUG_OFF, ("try default profile %d\n", retval));
-			} else {
-				/* TODO: need to roll back when convert into OSABL code */
-				fsize = (ULONG)srcf->f_dentry->d_inode->i_size;
-				if (buf_size < (fsize + 1)) {
-					buf_size = fsize + 1;
-					DBGPRINT(RT_DEBUG_ERROR, ("!!!Profile %s size is too big, %lu\n", src, fsize));
-				}
-				os_alloc_mem(pAd, (UCHAR **)&buffer, buf_size);
-				if (buffer) {
-					memset(buffer, 0x00, buf_size);
-					retval = RtmpOSFileRead(srcf, buffer, buf_size - 1);
-					if (retval > 0) {
-						RTMPSetProfileParameters(pAd, buffer);
-						retval = NDIS_STATUS_SUCCESS;
-					} else
-						DBGPRINT(RT_DEBUG_ERROR,
-						("Read file \"%s\" failed(errCode=%d)!\n", src, retval));
-					os_free_mem(NULL, buffer);
+			DBGPRINT(RT_DEBUG_OFF, ("try default profile %d\n", retval));
+		} else {
+			/* TODO: need to roll back when convert into OSABL code */
+			fsize = (ULONG) srcf->f_dentry->d_inode->i_size;
+			if (buf_size < (fsize + 1))
+				buf_size = fsize + 1;
+			os_alloc_mem(pAd, (UCHAR **) &buffer, buf_size);
+			if (buffer) {
+				memset(buffer, 0x00, buf_size);
+				retval = RtmpOSFileRead(srcf, buffer, buf_size - 1);
+				if (retval > 0) {
+					RTMPSetProfileParameters(pAd, buffer);
+					retval = NDIS_STATUS_SUCCESS;
 				} else
-					retval = NDIS_STATUS_FAILURE;
-
-				if (RtmpOSFileClose(srcf) != 0) {
-					retval = NDIS_STATUS_FAILURE;
 					DBGPRINT(RT_DEBUG_ERROR,
-						("Close file \"%s\" failed(errCode=%d)!\n", src, retval));
-				}
-			}
+						 ("Read file \"%s\" failed(errCode=%d)!\n", src,
+						  retval));
+				os_free_mem(NULL, buffer);
+			} else
+				retval = NDIS_STATUS_FAILURE;
 
-			RtmpOSFSInfoChange(&osFSInfo, FALSE);
+			if (RtmpOSFileClose(srcf) != 0) {
+				retval = NDIS_STATUS_FAILURE;
+				DBGPRINT(RT_DEBUG_ERROR,
+					 ("Close file \"%s\" failed(errCode=%d)!\n", src, retval));
+			}
 		}
-		if (retval == NDIS_STATUS_SUCCESS)
-			pAd->profile_loaded = TRUE;
+
+		RtmpOSFSInfoChange(&osFSInfo, FALSE);
 	}
 #ifdef HOSTAPD_SUPPORT
 	for (i = 0; i < pAd->ApCfg.BssidNum; i++) {
@@ -248,15 +245,11 @@ NDIS_STATUS RTMPReadParametersHook(RTMP_ADAPTER *pAd)
 	RTMPSetSingleSKUParametersCustomer(pAd);
 #else
 	/* Use default parser for normal single sku table(singleSKU.dat) */
-	if (!pAd->sku_loaded) {
-		pAd->sku_loaded = TRUE;
-		retval = RTMPSetSingleSKUParameters(pAd);
-		RTMPPreloadSingleSKUParameters(pAd, retval);
-	}
+	RTMPSetSingleSKUParameters(pAd);
 #endif /* endif */
 #endif /* SINGLE_SKU_V2 */
 
-	return retval;
+	return (retval);
 
 }
 
@@ -388,9 +381,7 @@ void announce_802_3_packet(IN VOID *pAdSrc, IN PNDIS_PACKET pPacket, IN UCHAR Op
 	RTMP_ADAPTER *pAd = (RTMP_ADAPTER *) pAdSrc;
 #endif /* endif */
 	PNDIS_PACKET pRxPkt = pPacket;
-#ifdef RXPKT_THREAD
-	unsigned long IrqFlags;
-#endif /* RXPKT_THREAD */
+
 	ASSERT(pPacket);
 	MEM_DBG_PKT_FREE_INC(pPacket);
 
@@ -539,14 +530,7 @@ void announce_802_3_packet(IN VOID *pAdSrc, IN PNDIS_PACKET pPacket, IN UCHAR Op
 	}
 #endif /* CONFIG_WIFI_PKT_FWD */
 
-#ifdef RXPKT_THREAD
-	RTMP_IRQ_LOCK(&pAd->rxPktQLock, IrqFlags);
-	InsertTailQueue(&pAd->rxPktQ, PACKET_TO_QUEUE_ENTRY(pRxPkt));
-	RTMP_IRQ_UNLOCK(&pAd->rxPktQLock, IrqFlags);
-	RtmpOsRxPktUp(&pAd->rxPktTask);
-#else
 	RtmpOsPktRcvHandle(pRxPkt);
-#endif /* RXPKT_THREAD */
 }
 
 #ifdef CONFIG_SNIFFER_SUPPORT

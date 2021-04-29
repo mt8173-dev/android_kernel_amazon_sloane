@@ -1,14 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ****************************************************************************
 
      Module Name:
@@ -1134,6 +1136,9 @@ static VOID APPeerBeaconAction(IN PRTMP_ADAPTER pAd, IN MLME_QUEUE_ELEM * Elem)
 			|| pAd->ed_chk	/* only updat scan table when AP turn on edcca */
 #endif /* ED_MONITOR */
 			) {
+#ifdef ED_MONITOR
+			ULONG ap_count;
+#endif
 			ULONG Idx;
 			CHAR Rssi;
 
@@ -1165,6 +1170,19 @@ static VOID APPeerBeaconAction(IN PRTMP_ADAPTER pAd, IN MLME_QUEUE_ELEM * Elem)
 				NdisMoveMemory(&pAd->ScanTab.BssEntry[Idx].TTSF[4],
 					       &Elem->TimeStamp.u.LowPart, 4);
 			}
+#ifdef ED_MONITOR
+			if ((ap_count =
+			     BssChannelAPCount(&pAd->ScanTab,
+					       pAd->CommonCfg.Channel)) > pAd->ed_ap_threshold) {
+				if (pAd->ed_chk) {
+					DBGPRINT(RT_DEBUG_ERROR,
+						 ("@@@ %s : BssChannelAPCount=%lu, ed_ap_threshold=%u, ",
+						  __func__, ap_count, pAd->ed_ap_threshold));
+					DBGPRINT(RT_DEBUG_ERROR, ("go to ed_monitor_exit()!!\n"));
+					ed_monitor_exit(pAd);
+				}
+			}
+#endif /* ED_MONITOR */
 		}
 
 	}

@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology	5th	Rd.
+ * Science-based Industrial	Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2006, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work	and	the
+ * use of a	copyright notice does not imply	otherwise. This	source code
+ * contains	confidential trade secret material of Ralink Tech. Any attemp
+ * or participation	in deciphering,	decoding, reverse engineering or in	any
+ * way altering	the	source code	is stricitly prohibited, unless	the	prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -74,17 +77,6 @@ NDIS_STATUS RtmpMgmtTaskInit(IN RTMP_ADAPTER * pAd)
 	WscThreadInit(pAd);
 #endif /* WSC_INCLUDED */
 
-#ifdef RXPKT_THREAD
-	pTask = &pAd->rxPktTask;
-	RTMP_OS_TASK_INIT(pTask, "RtmpRxPktTask", pAd);
-	status = RtmpOSTaskAttach(pTask, RTRxPktThread, (ULONG) pTask);
-	if (status == NDIS_STATUS_FAILURE) {
-		pr_warn("%s: unable to start RTRxPktThread\n",
-		       RTMP_OS_NETDEV_GET_DEVNAME(pAd->net_dev));
-		return NDIS_STATUS_FAILURE;
-	}
-	DBGPRINT(RT_DEBUG_ERROR, ("%s:RtmpRxPktTask Create\n", __func__));
-#endif /* RXPKT_THREAD */
 	return NDIS_STATUS_SUCCESS;
 }
 
@@ -106,9 +98,6 @@ VOID RtmpMgmtTaskExit(IN RTMP_ADAPTER * pAd)
 {
 	INT ret;
 	RTMP_OS_TASK *pTask;
-#ifdef RXPKT_THREAD
-	unsigned long IrqFlags;
-#endif /* RXPKT_THREAD */
 
 	/* Sleep 50 milliseconds so pending io might finish normally */
 	RtmpusecDelay(50000);
@@ -149,19 +138,6 @@ VOID RtmpMgmtTaskExit(IN RTMP_ADAPTER * pAd)
 #ifdef WSC_INCLUDED
 	WscThreadExit(pAd);
 #endif /* WSC_INCLUDED */
-#ifdef RXPKT_THREAD
-	/* Terminate rxPkt thread */
-	pTask = &pAd->rxPktTask;
-	RTMP_OS_TASK_LEGALITY(pTask) {
-		RTMP_IRQ_LOCK(&pAd->rxPktQLock, IrqFlags);
-		RtmpCleanupRxPktQueue(pAd, &pAd->rxPktQ);
-		RTMP_IRQ_UNLOCK(&pAd->rxPktQLock, IrqFlags);
-
-		ret = RtmpOSTaskKill(pTask);
-		if (ret == NDIS_STATUS_FAILURE)
-			DBGPRINT(RT_DEBUG_ERROR, ("kill command task failed!\n"));
-	}
-#endif /* RXPKT_THREAD */
 
 }
 
@@ -1178,89 +1154,3 @@ void InitUSBDevice(RT_CMD_USB_INIT *config, VOID *ad_src)
 
 	RtmpRaDevCtrlInit(ad, ad->infType);
 }
-
-#ifdef RXPKT_THREAD
-static NTSTATUS SendPktToOSHdlr(RTMP_ADAPTER *pAd)
-{
-	PQUEUE_ENTRY pQEntry;
-	NDIS_PACKET *pPacket;
-	unsigned long IrqFlags;
-	UINT loopcnt = CFG_RX_OS_LOOP_CNT;
-
-	while (loopcnt--) {
-		while (pAd->rxPktQ.Number > 0) {
-			RTMP_IRQ_LOCK(&pAd->rxPktQLock, IrqFlags);
-			pQEntry = RemoveHeadQueue(&pAd->rxPktQ);
-			pPacket = QUEUE_ENTRY_TO_PACKET(pQEntry);
-			RTMP_IRQ_UNLOCK(&pAd->rxPktQLock, IrqFlags);
-
-			if (pPacket != NULL)
-				netif_rx_ni(RTPKT_TO_OSPKT(pPacket));
-		}
-	}
-	return NDIS_STATUS_SUCCESS;
-}
-
-INT RTRxPktThread(IN ULONG Context)
-{
-	RTMP_ADAPTER *pAd;
-	RTMP_OS_TASK *pTask;
-	int status;
-	status = 0;
-
-	pTask = (RTMP_OS_TASK *) Context;
-	pAd = (PRTMP_ADAPTER) RTMP_OS_TASK_DATA_GET(pTask);
-
-	if (pAd == NULL)
-		goto LabelExit;
-	set_user_nice(current, -10);
-	RtmpOSTaskCustomize(pTask);
-
-	while (!RTMP_OS_TASK_IS_KILLED(pTask)) {
-		if (RtmpOSTaskWait(pAd, pTask, &status) == TRUE)
-			SendPktToOSHdlr(pAd);
-		else
-			break;
-
-	}
-
-	/* Clear RX Pkt Q */
-
-LabelExit:
-	DBGPRINT(RT_DEBUG_TRACE, ("<---%s\n", __func__));
-	RtmpOSTaskNotifyToExit(pTask);
-	return 0;
-
-}
-
-VOID RtmpOsRxPktUp(RTMP_OS_TASK *prxPktTask)
-{
-	OS_TASK *pTask = RTMP_OS_TASK_GET(prxPktTask);
-#ifdef KTHREAD_SUPPORT
-	pTask->kthread_running = TRUE;
-	wake_up(&pTask->kthread_q);
-#else
-	CHECK_PID_LEGALITY(pTask->taskPID) {
-		RTMP_SEM_EVENT_UP(&(pTask->taskSema));
-	}
-#endif /* KTHREAD_SUPPORT */
-}
-
-VOID RtmpCleanupRxPktQueue(IN RTMP_ADAPTER *pAd, IN PQUEUE_HEADER pQueue)
-{
-	PQUEUE_ENTRY pEntry;
-	PNDIS_PACKET pPacket;
-
-	DBGPRINT(RT_DEBUG_INFO, ("%s(): (0x%08lx)...\n", __func__, (ULONG) pQueue));
-
-	while (pQueue->Head) {
-		DBGPRINT(RT_DEBUG_INFO, ("%s():%d...\n", __func__, pQueue->Number));
-
-		pEntry = RemoveHeadQueue(pQueue);
-		/*pPacket = CONTAINING_RECORD(pEntry, NDIS_PACKET, MiniportReservedEx); */
-		pPacket = QUEUE_ENTRY_TO_PACKET(pEntry);
-		RELEASE_NDIS_PACKET(pAd, pPacket, NDIS_STATUS_FAILURE);
-	}
-}
-#endif /* RXPKT_THREAD */
-

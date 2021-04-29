@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2010, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -1765,7 +1766,7 @@ VOID StaQuickResponeForRateUpExecAdapt(IN PRTMP_ADAPTER pAd, IN ULONG i, IN CHAR
 {
 	PUCHAR pTable;
 	UCHAR CurrRateIdx;
-	ULONG TxTotalCnt = 0;
+	ULONG TxTotalCnt;
 	ULONG TxErrorRatio = 0;
 	PMAC_TABLE_ENTRY pEntry;
 	RTMP_RA_GRP_TB *pCurrTxRate;
@@ -1794,36 +1795,15 @@ VOID StaQuickResponeForRateUpExecAdapt(IN PRTMP_ADAPTER pAd, IN ULONG i, IN CHAR
 		TxRetransmit = StaTx1.field.TxRetransmit;
 		TxSuccess = StaTx1.field.TxSuccess;
 		TxFailCount = TxStaCnt0.field.TxFailCount;
-		TxTotalCnt = TxRetransmit + TxSuccess + TxFailCount;
-		if (TxTotalCnt)
-			TxErrorRatio = ((TxRetransmit + TxFailCount) * 100) / TxTotalCnt;
 	} else {
 		TxRetransmit = pEntry->OneSecTxRetryOkCount;
 		TxSuccess = pEntry->OneSecTxNoRetryOkCount;
 		TxFailCount = pEntry->OneSecTxFailCount;
-#ifdef FIFO_EXT_SUPPORT
-		if ((pEntry->wcid >= 1) && (pEntry->wcid <= 8)) {
-			ULONG HwTxCnt, HwErrRatio;
-
-			NicGetMacFifoTxCnt(pAd, pEntry);
-			HwTxCnt = pEntry->fifoTxSucCnt + pEntry->fifoTxRtyCnt;
-			if (HwTxCnt)
-				HwErrRatio = (pEntry->fifoTxRtyCnt * 100) / HwTxCnt;
-			else
-				HwErrRatio = 0;
-
-			DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,
-				 ("%s()=>Wcid:%d,MCS:%d,TxErrRation(Hw:0x%lx-0x%lx,Sw:0x%lx-%lx)\n",
-				  __func__, pEntry->wcid, pEntry->HTPhyMode.field.MCS, HwTxCnt,
-				  HwErrRatio, TxTotalCnt, TxErrorRatio));
-
-			TxSuccess = pEntry->fifoTxSucCnt;
-			TxRetransmit = pEntry->fifoTxRtyCnt;
-			TxErrorRatio = HwErrRatio;
-			TxTotalCnt = HwTxCnt;
-		}
-#endif /*  FIFO_EXT_SUPPORT */
 	}
+
+	TxTotalCnt = TxRetransmit + TxSuccess + TxFailCount;
+	if (TxTotalCnt)
+		TxErrorRatio = ((TxRetransmit + TxFailCount) * 100) / TxTotalCnt;
 
 #ifdef MFB_SUPPORT
 	if (pEntry->fLastChangeAccordingMfb == TRUE) {
@@ -1959,12 +1939,10 @@ VOID StaQuickResponeForRateUpExecAdapt(IN PRTMP_ADAPTER pAd, IN ULONG i, IN CHAR
 			DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,
 				 ("   QuickDRS: (Down) direct train down (TxErrorRatio >= TrainDown)\n"));
 		} else if ((pEntry->LastTxOkCount + 2) >= OneSecTxNoRetryOKRationCount) {
-			if (TxErrorRatio >= TrainDown) {
-				MlmeRestoreLastRate(pEntry);
-				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,
-					 ("   QuickDRS: (Down) bad tx ok count (L:%ld, C:%ld)\n",
-					  pEntry->LastTxOkCount, OneSecTxNoRetryOKRationCount));
-			}
+			MlmeRestoreLastRate(pEntry);
+			DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,
+				 ("   QuickDRS: (Down) bad tx ok count (L:%ld, C:%ld)\n",
+				  pEntry->LastTxOkCount, OneSecTxNoRetryOKRationCount));
 		} else {
 			MlmeSetMcsGroup(pAd, pEntry);
 			DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,

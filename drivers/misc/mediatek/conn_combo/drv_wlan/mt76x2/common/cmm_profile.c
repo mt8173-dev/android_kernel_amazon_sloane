@@ -1,14 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ****************************************************************************
 
     Module Name:
@@ -1691,12 +1693,12 @@ static void VHTParametersHook(IN RTMP_ADAPTER *pAd, IN PSTRING pValueStr, IN con
 			pAd->CommonCfg.vht_bw = VHT_BW_80;
 		else
 			pAd->CommonCfg.vht_bw = VHT_BW_2040;
-#if 0 /*Don't know why default MCAST BW should be 80M*/
+
 #ifdef MCAST_RATE_SPECIFIC
 		if (pAd->CommonCfg.vht_bw == VHT_BW_80)
 			pAd->CommonCfg.MCastPhyMode.field.BW = BW_80;
 #endif /* MCAST_RATE_SPECIFIC */
-#endif
+
 		DBGPRINT(RT_DEBUG_TRACE, ("VHT: Channel Width = %s\n",
 					  (pAd->CommonCfg.vht_bw ==
 					   VHT_BW_80) ? "80 MHz" : "20/40 MHz"));
@@ -1999,12 +2001,12 @@ static void HTParametersHook(IN PRTMP_ADAPTER pAd, IN PSTRING pValueStr, IN cons
 		else
 			pAd->CommonCfg.RegTransmitSetting.field.BW = BW_20;
 
-		pAd->CommonCfg.default_bw = pAd->CommonCfg.RegTransmitSetting.field.BW;
+#ifdef MCAST_RATE_SPECIFIC
+		pAd->CommonCfg.MCastPhyMode.field.BW = pAd->CommonCfg.RegTransmitSetting.field.BW;
+#endif /* MCAST_RATE_SPECIFIC */
 
 		DBGPRINT(RT_DEBUG_TRACE,
 			 ("HT: Channel Width = %s\n", (Value == BW_40) ? "40 MHz" : "20 MHz"));
-		DBGPRINT(RT_DEBUG_TRACE,
-			 ("HT: default_bw = %s\n", (Value == BW_40) ? "40 MHz" : "20 MHz"));
 	}
 
 	if (RTMPGetKeyParameter("HT_EXTCHA", pValueStr, 25, pInput, TRUE)) {
@@ -3253,15 +3255,6 @@ NDIS_STATUS RTMPSetProfileParameters(IN RTMP_ADAPTER *pAd, IN const char *pBuffe
 			pAd->ed_ap_threshold = count;
 			DBGPRINT(RT_DEBUG_TRACE, ("pAd->ed_ap_threshold = %u\n", count));
 		}
-
-		/*For APs RSSI found in working channel*/
-		if (RTMPGetKeyParameter("EDCCA_AP_RSSI_TH", tmpbuf, 32, pBuffer, TRUE)) {
-			INT ret = TRUE;
-			ULONG count = 0;
-			ret = kstrtol(tmpbuf, 10, &count);
-			pAd->ed_rssi_threshold = count;
-			DBGPRINT(RT_DEBUG_TRACE, ("pAd->ed_rssi_threshold = %lu\n", count));
-		}
 #endif /* CONFIG_AP_SUPPORT */
 
 #ifdef CONFIG_STA_SUPPORT
@@ -3439,7 +3432,7 @@ NDIS_STATUS RTMPSetProfileParameters(IN RTMP_ADAPTER *pAd, IN const char *pBuffe
 					pAd->CommonCfg.bIEEE80211H = TRUE;
 				else	/*Disable */
 					pAd->CommonCfg.bIEEE80211H = FALSE;
-				pAd->CommonCfg.bIEEE80211H_PASSIVE_SCAN = TRUE;
+
 				DBGPRINT(RT_DEBUG_TRACE,
 					 ("IEEE80211H=%d\n", pAd->CommonCfg.bIEEE80211H));
 			}
@@ -5043,534 +5036,126 @@ void rtmp_read_wsc_user_parms_from_file(IN PRTMP_ADAPTER pAd, char *tmpbuf, char
 #endif /*WSC_INCLUDED */
 
 #ifdef SINGLE_SKU_V2
-INT RTMPPrintSKUParams(IN PRTMP_ADAPTER pAd, DL_LIST *tbl)
+NDIS_STATUS RTMPSetSingleSKUParameters(IN RTMP_ADAPTER *pAd)
 {
-	NDIS_STATUS ret = NDIS_STATUS_SUCCESS;
-	CH_POWER *ch, *ch_temp;
-
-	ret = DlListEmpty(tbl);
-	if (ret)
-		goto table_not_init;
-
-	DlListForEachSafe(ch, ch_temp, tbl, CH_POWER, List) {
-		int i;
-		DBGPRINT(RT_DEBUG_ERROR, ("start ch = %d, ch->num = %d\n",
-			 ch->StartChannel, ch->num));
-
-		DBGPRINT(RT_DEBUG_ERROR, ("Channel: "));
-		for (i = 0; i < ch->num; i++)
-			DBGPRINT(RT_DEBUG_ERROR, ("%d ", ch->Channel[i]));
-		DBGPRINT(RT_DEBUG_ERROR, ("\n"));
-
-		DBGPRINT(RT_DEBUG_ERROR, ("CCK: "));
-		for (i = 0; i < SINGLE_SKU_TABLE_CCK_LENGTH; i++)
-			DBGPRINT(RT_DEBUG_ERROR, ("%d ", ch->PwrCCK[i]));
-		DBGPRINT(RT_DEBUG_ERROR, ("\n"));
-
-		DBGPRINT(RT_DEBUG_ERROR, ("OFDM: "));
-		for (i = 0; i < SINGLE_SKU_TABLE_OFDM_LENGTH; i++)
-			DBGPRINT(RT_DEBUG_ERROR, ("%d ", ch->PwrOFDM[i]));
-		DBGPRINT(RT_DEBUG_ERROR, ("\n"));
-
-		DBGPRINT(RT_DEBUG_ERROR, ("HT20: "));
-		for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++)
-			DBGPRINT(RT_DEBUG_ERROR, ("%d ", ch->PwrHT20[i]));
-		DBGPRINT(RT_DEBUG_ERROR, ("\n"));
-
-		DBGPRINT(RT_DEBUG_ERROR, ("HT40: "));
-		for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++)
-			DBGPRINT(RT_DEBUG_ERROR, ("%d ", ch->PwrHT40[i]));
-		DBGPRINT(RT_DEBUG_ERROR, ("\n"));
-
-		DBGPRINT(RT_DEBUG_ERROR, ("VHT80: "));
-		for (i = 0; i < SINGLE_SKU_TABLE_VHT_LENGTH; i++)
-			DBGPRINT(RT_DEBUG_ERROR, ("%d ", ch->PwrVHT80[i]));
-		DBGPRINT(RT_DEBUG_ERROR, ("\n"));
-	}
-
-	return ret;
-table_not_init:
-	DBGPRINT(RT_DEBUG_ERROR, ("%s Power list not initialized\n", __func__));
-	return NDIS_STATUS_FAILURE;
-}
-
-#define REG_EU_COUNTRY_NUM 3
-static CHAR eu_country_tbl[REG_EU_COUNTRY_NUM][2] = {"GB", "DE", "FR"};
-INT RTMPLoadSKUProfile(IN PRTMP_ADAPTER pAd, IN PSTRING arg)
-{
-	NDIS_STATUS ret = NDIS_STATUS_SUCCESS;
-	struct _PRELOAD_SKU_LIST *list, *list_temp;
-	struct _PRELOAD_SKU_LIST *to = NULL, *from = NULL;
-	CH_POWER *ch, *ch_temp;
-	BOOLEAN found = FALSE;
-	unsigned long flags;
-	INT i = 0;
-
-	if (DlListEmpty(&pAd->PreloadSkuPwrList)) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s, No PreloadSkuPwrList\n", __func__));
-		goto switch_fail;
-	}
-
-	for (i = 0; i < REG_EU_COUNTRY_NUM; i++) {
-		if ((eu_country_tbl[i][0] == arg[0]) && (eu_country_tbl[i][1] == arg[1])) {
-			DBGPRINT(RT_DEBUG_TRACE, ("%s, %c%c EU area match\n", __func__, arg[0], arg[1]));
-			arg[0] = 'E';
-			arg[1] = 'U';
-			break;
-		} else {
-			DBGPRINT(RT_DEBUG_TRACE, ("%s, arg: %c%c, tbl:%c%c\n"
-				, __func__, arg[0], arg[1], eu_country_tbl[i][0], eu_country_tbl[i][1]));
-		}
-	}
-
-	DlListForEachSafe(list, list_temp, &pAd->PreloadSkuPwrList, struct _PRELOAD_SKU_LIST, List) {
-		if ((list->Country[0] == arg[0]) && (list->Country[1] == arg[1])) {
-			found = TRUE;
-			to = list;
-			DBGPRINT(RT_DEBUG_TRACE, ("%s, %c%c match\n", __func__, arg[0], arg[1]));
-		} else if (list->in_use) {
-			from = list;
-			DBGPRINT(RT_DEBUG_TRACE, ("%s, current using profile %c%c\n"
-				, __func__, list->Country[0], list->Country[1]));
-		}
-	}
-
-	if (!from)
-		goto switch_fail;
-	if (!found)
-		goto fall_back;
-
-	to->in_use = TRUE;
-	from->in_use = FALSE;
-
-	DlListInit(&from->sku_pwr_list);
-	RTMP_SPIN_LOCK_IRQSAVE(&pAd->sku_lock, &flags);
-	DlListForEachSafe(ch, ch_temp, &pAd->SingleSkuPwrList, CH_POWER, List) {
-		DlListAddTail(&from->sku_pwr_list, &ch->List);
-	}
-	DlListInit(&pAd->SingleSkuPwrList);
-
-	DlListForEachSafe(ch, ch_temp, &to->sku_pwr_list, CH_POWER, List) {
-		DlListAddTail(&pAd->SingleSkuPwrList, &ch->List);
-	}
-	RTMP_SPIN_UNLOCK_IRQRESTORE(&pAd->sku_lock, &flags);
-
-	DlListInit(&to->sku_pwr_list);
-	return ret;
-switch_fail:
-	DBGPRINT(RT_DEBUG_ERROR, ("%s, %c%c current use not found/already inuse\n", __func__, arg[0], arg[1]));
-	return NDIS_STATUS_INVALID_DATA;
-fall_back:
-	DBGPRINT(RT_DEBUG_ERROR, ("%s, %c%c no sku table found fall back to WW\n", __func__, arg[0], arg[1]));
-	if (from && strcmp(from->Country, "00"))
-		RTMPLoadSKUProfile(pAd, "00");
-	return ret;
-}
-
-INT RTMPShowSingleSKUParameters(IN PRTMP_ADAPTER pAd, IN PSTRING arg)
-{
-	NDIS_STATUS ret = NDIS_STATUS_SUCCESS;
-	DBGPRINT(RT_DEBUG_ERROR, ("[REG::DBG] %s\n", __func__));
-	ret = RTMPPrintSKUParams(pAd, &pAd->SingleSkuPwrList);
-	return ret;
-}
-
-NDIS_STATUS RTMPSetSingleSKUParameters(RTMP_ADAPTER *pAd)
-{
-	NDIS_STATUS ret = NDIS_STATUS_SUCCESS;
-	ret = RTMPSetSingleSKUParametersExt(pAd, SINGLE_SKU_TABLE_FILE_NAME, FALSE, NULL);
-	return ret;
-}
-
-NDIS_STATUS RTMPReleasePreloadSkuTbl(RTMP_ADAPTER *pAd)
-{
-	NDIS_STATUS ret = NDIS_STATUS_SUCCESS;
-	struct _PRELOAD_SKU_LIST *list, *list_temp;
-
-	DlListForEachSafe(list, list_temp, &pAd->PreloadSkuPwrList, struct _PRELOAD_SKU_LIST, List) {
-		CH_POWER *ch, *ch_temp;
-		DlListForEachSafe(ch, ch_temp, &list->sku_pwr_list, CH_POWER, List) {
-			DlListDel(&ch->List);
-			os_free_mem(NULL, ch);
-		}
-	}
-	DlListDel(&pAd->PreloadSkuPwrList);
-	DlListInit(&pAd->PreloadSkuPwrList);
-	return ret;
-}
-
-NDIS_STATUS RTMPPreloadSingleSKUParameters(RTMP_ADAPTER *pAd, INT def_success)
-{
-	PSTRING buffer = NULL;
-	PSTRING readline;
-	RTMP_OS_FD srcf;
-	INT retval;
-	PSTRING ptr;
-	RTMP_OS_FS_INFO osFSInfo;
-	int index;
-	INT bufferSize, filesize;
-	NDIS_STATUS ret = NDIS_STATUS_FAILURE;
-	CHAR fpath[256];
-	struct _PRELOAD_SKU_LIST *list, *list_temp;
-	struct _PRELOAD_SKU_LIST *sku_list = NULL;
-	NdisZeroMemory(fpath, 255);
-	RtmpOSFSInfoChange(&osFSInfo, TRUE);
-	pAd->bOpenFileSuccess = FALSE;
-
-	DBGPRINT(RT_DEBUG_ERROR, ("%s add \\0 at the end of buffer\n", __func__));
-	DlListInit(&pAd->PreloadSkuPwrList);
-	if (def_success) {
-		/* card information file does not exist */
-		DBGPRINT(RT_DEBUG_ERROR, ("%s default table load fail\n", __func__));
-		goto open_fail;
-	}
-
-	/* open card information file */
-	srcf = RtmpOSFileOpen(SINGLE_SKU_TABLE_PRELOAD, O_RDONLY, 0);
-	if (IS_FILE_OPEN_ERR(srcf)) {
-		/* card information file does not exist */
-		DBGPRINT(RT_DEBUG_ERROR, ("%s open fail %s\n", __func__,
-			 SINGLE_SKU_TABLE_FILE_NAME));
-		goto open_fail;
-	}
-
-	bufferSize = srcf->f_dentry->d_inode->i_size;
-
-	/* init */
-	buffer = RtmpOsVmalloc(bufferSize + 1);
-	if (buffer == NULL) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s alloc %d fail\n", __func__,
-			 bufferSize));
-		ret = NDIS_STATUS_RESOURCES;
-		goto alloc_fail_1;
-	}
-
-	DBGPRINT(RT_DEBUG_TRACE, ("%s, file being read is  : %s\n", __func__, SINGLE_SKU_TABLE_PRELOAD));
-	/* card information file exists so reading the card information */
-	NdisZeroMemory(buffer, bufferSize + 1);
-
-	retval = RtmpOSFileRead(srcf, buffer, bufferSize);
-	if (retval < 0) {
-		/* read fail */
-		DBGPRINT(RT_DEBUG_ERROR,
-			 ("--> Read %s error %d\n", SINGLE_SKU_TABLE_FILE_NAME,
-			 -retval));
-		goto read_fail;
-	}
-	buffer[bufferSize] = '\0';
-	ptr = buffer;
-	readline = buffer;
-	filesize = bufferSize;
-	for (index = 0; (filesize > 0) && readline && ((ptr = strchr(readline, '\n')) != NULL); index++) {
-		*ptr = '\0';
-		filesize -= (ptr - readline + 1);
-		DBGPRINT(RT_DEBUG_TRACE,
-			("%s, At start ptr = %p rl = %p  filesize = %d\n", __func__, ptr, readline, filesize));
-
-		ret = os_alloc_mem(NULL, (UCHAR **)&sku_list, sizeof(*sku_list));
-		if (ret) {
-			DBGPRINT(RT_DEBUG_ERROR, ("%s alloc sku_list fail\n", __func__));
-			ret = NDIS_STATUS_RESOURCES;
-			goto read_fail;
-		}
-		NdisZeroMemory(sku_list, sizeof(*sku_list));
-		DlListInit(&sku_list->sku_pwr_list);
-		sprintf(fpath, "%s%s", SINGLE_SKU_TABLE_FILE_PATH, readline);
-		if (strlen(readline) > strlen("SingleSKU_XX")) {
-			sku_list->Country[0] = readline[strlen("SingleSKU_X")-1];
-			sku_list->Country[1] = readline[strlen("SingleSKU_XX")-1];
-		}
-		ret = RTMPSetSingleSKUParametersExt(pAd, fpath, TRUE, &sku_list->sku_pwr_list);
-		if (ret) {
-			os_free_mem(NULL, sku_list);
-			RTMPReleasePreloadSkuTbl(pAd);
-			goto read_fail;
-		}
-		/* RTMPPrintSKUParams(pAd, &sku_list->sku_pwr_list);*/
-		DlListAddTail(&pAd->PreloadSkuPwrList, &sku_list->List);
-		readline = ptr + 1;
-
-		DBGPRINT(RT_DEBUG_TRACE, ("%s:%d at End ptr = %p rl = %p and filesize = %d\n",
-			__func__, index, ptr, readline, filesize));
-
-		if (!readline || !(readline+1))
-			goto read_fail;
-		if ((filesize > 0) && (readline[0] == '#'))
-			continue;
-	}
-
-	if (DlListEmpty(&pAd->SingleSkuPwrList)) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s, No singleSkuPwrList\n", __func__));
-		goto read_fail;
-	}
-
-	pAd->bOpenFileSuccess = TRUE;
-	ret = NDIS_STATUS_SUCCESS;
-
-read_fail:
-	ret = os_alloc_mem(NULL, (UCHAR **) &sku_list, sizeof(*sku_list));
-	if (ret) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s alloc sku_list\n", __func__));
-		ret = NDIS_STATUS_RESOURCES;
-		goto alloc_fail_2;
-	}
-	NdisZeroMemory(sku_list, sizeof(*sku_list));
-	DlListInit(&sku_list->sku_pwr_list);
-	sku_list->Country[0] = '0';
-	sku_list->Country[1] = '0';
-	sku_list->in_use = TRUE;
-	DlListAddTail(&pAd->PreloadSkuPwrList, &sku_list->List);
-
-#ifdef DBG
-	DlListForEachSafe(list, list_temp, &pAd->PreloadSkuPwrList, struct _PRELOAD_SKU_LIST, List) {
-		DBGPRINT(RT_DEBUG_OFF, ("%s, Country:%c%c\n"
-			, __func__, list->Country[0], list->Country[1]));
-		/* RTMPPrintSKUParams(pAd, &list->sku_pwr_list); */
-	}
-#endif
-alloc_fail_2:
-	if (buffer)
-		RtmpOsVfree(buffer);
-alloc_fail_1:
-	retval = RtmpOSFileClose(srcf);
-open_fail:
-	RtmpOSFSInfoChange(&osFSInfo, FALSE);
-	return ret;
-}
-
-NDIS_STATUS RTMPSetSingleSKUParametersExt(RTMP_ADAPTER *pAd, PSTRING file_path, BOOLEAN get_tbl_only, DL_LIST *tbl)
-{
-	PSTRING buffer = NULL;
+	PSTRING buffer;
 	PSTRING readline, token;
 	RTMP_OS_FD srcf;
 	INT retval;
 	PSTRING ptr;
 	int index, i;
 	CH_POWER *StartCh = NULL;
-	UCHAR *temp;
+	UCHAR MaxPwr;
+	UCHAR channel, *temp;
 	RTMP_OS_FS_INFO osFSInfo;
-	INT bufferSize;
-	NDIS_STATUS ret = NDIS_STATUS_FAILURE;
-	DL_LIST *sku_tbl = NULL;
-	INT filesize;
+	INT bufferSize = 0;
 
-	if (!get_tbl_only)
-		sku_tbl = &pAd->SingleSkuPwrList;
-	else
-		sku_tbl = tbl;
+	DlListInit(&pAd->SingleSkuPwrList);
 
-	if (!sku_tbl) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s, sku source error\n", __func__));
-		return NDIS_STATUS_RESOURCES;
-	}
 
-	DlListInit(sku_tbl);
 	RtmpOSFSInfoChange(&osFSInfo, TRUE);
+
 	pAd->bOpenFileSuccess = FALSE;
 
 	/* open card information file */
-	srcf = RtmpOSFileOpen(file_path, O_RDONLY, 0);
+	srcf = RtmpOSFileOpen(SINGLE_SKU_TABLE_FILE_NAME, O_RDONLY, 0);
 	if (IS_FILE_OPEN_ERR(srcf)) {
 		/* card information file does not exist */
-		DBGPRINT(RT_DEBUG_ERROR, ("%s open fail %s\n", __func__,
-			 SINGLE_SKU_TABLE_FILE_NAME));
-		goto open_fail;
+		DBGPRINT(RT_DEBUG_ERROR, ("--> Error opening %s\n", SINGLE_SKU_TABLE_FILE_NAME));
+		goto free_resource;
 	}
 
 	bufferSize = srcf->f_dentry->d_inode->i_size;
+	DBGPRINT(RT_DEBUG_TRACE, ("(%s)bufferSize= %d\n", __func__, bufferSize));
 
 	/* init */
-	buffer = RtmpOsVmalloc(bufferSize + 1);
-	if (buffer == NULL) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s alloc %d fail\n", __func__,
-			 bufferSize));
-		ret = NDIS_STATUS_RESOURCES;
-		goto alloc_fail;
+	os_alloc_mem(NULL, (UCHAR **) &buffer, bufferSize);
+	if (buffer == NULL)
+		return FALSE;
+
+#ifdef RTMP_INTERNAL_TX_ALC
+	if (pAd->TxPowerCtrl.bInternalTxALC != TRUE)
+#endif /* RTMP_INTERNAL_TX_ALC */
+	{
 	}
 
-	DBGPRINT(RT_DEBUG_TRACE, ("%s, file being read is  : %s\n", __func__, file_path));
 	/* card information file exists so reading the card information */
-	NdisZeroMemory(buffer, bufferSize + 1);
+	NdisZeroMemory(buffer, bufferSize);
 
 	retval = RtmpOSFileRead(srcf, buffer, bufferSize);
 	if (retval < 0) {
 		/* read fail */
 		DBGPRINT(RT_DEBUG_ERROR,
 			 ("--> Read %s error %d\n", SINGLE_SKU_TABLE_FILE_NAME, -retval));
-		goto read_fail;
-	}
+	} else {
+		for (readline = ptr = buffer, index = 0; (ptr = strchr(readline, '\n')) != NULL;
+		     readline = ptr + 1, index++) {
+			*ptr = '\0';
 
-	buffer[bufferSize] = '\0';
-	ptr = buffer;
-	readline = buffer;
-	filesize = bufferSize;
+			if (readline[0] == '#')
+				continue;
 
-	for (index = 0; (filesize > 0) && readline && ((ptr = strchr(readline, '\n')) != NULL); index++) {
-		*ptr = '\0';
-		filesize -= (ptr - readline + 1);
-		DBGPRINT(RT_DEBUG_TRACE,
-		("%s, At start ptr = %p rl = %p  filesize = %d\n", __func__, ptr, readline, filesize));
-		if (!(readline + 2)) {
-			DBGPRINT(RT_DEBUG_ERROR, ("%s, readline+2 NULL\n", __func__));
-			goto parse_fail;
-		}
+			if (!strncmp(readline, "ch", 2)) {
+				CH_POWER *pwr = NULL;
+				os_alloc_mem(NULL, (UCHAR **) &pwr, sizeof(*pwr));
+				NdisZeroMemory(pwr, sizeof(*pwr));
 
-		if (!strncmp(readline, "ch", 2)) {
-			CH_POWER *pwr = NULL;
-			PSTRING pwr_int = NULL;
-			PSTRING pwr_float = NULL;
-			int err;
-			long lval = 0;
-			UCHAR channel;
-			os_alloc_mem(NULL, (UCHAR **) &pwr, sizeof(*pwr));
+				token = rstrtok(readline + 2, " ");
+				channel = simple_strtol(token, 0, 10);
+				pwr->StartChannel = channel;
 
-			if (!pwr) {
-				DBGPRINT(RT_DEBUG_ERROR, ("%s#%d !pwr\n",
-					 __func__, __LINE__));
-				goto parse_fail;
-			}
-
-			NdisZeroMemory(pwr, sizeof(*pwr));
-
-			token = rstrtok(readline + 2, " ");
-			if (!token) {
-				DBGPRINT(RT_DEBUG_ERROR, ("%s#%d\n",
-					 __func__, __LINE__));
-				os_free_mem(NULL, pwr);
-				goto parse_fail;
-			}
-
-			err = os_strtol(token, 10, &lval);
-			if (err) {
-				DBGPRINT(RT_DEBUG_ERROR, ("%s#%d err %d\n",
-					 __func__, __LINE__, err));
-				os_free_mem(NULL, pwr);
-				goto parse_fail;
-			}
-
-			channel = (UCHAR)lval;
-			pwr->StartChannel = channel;
-
-			if (pwr->StartChannel > 14)
-				goto skip_cck_tbl;
-			for (i = 0; i < SINGLE_SKU_TABLE_CCK_LENGTH; i++) {
-				long lpwr_float = 0;
-				token = rstrtok(NULL, " ");
-				if (token == NULL)
-					break;
-				pwr_int = strsep((char **)&token, ".");
-				pwr_float = strsep((char **)&token, ".");
-				if (pwr_int)
-					err = os_strtol(pwr_int, 10, &lval);
-				if (pwr_float)
-					err += os_strtol(pwr_float, 10, &lpwr_float);
-				if (err) {
-					DBGPRINT(RT_DEBUG_ERROR,
-						("%s#%d err %d paring %s\n",
-						__func__, __LINE__,
-						 err, token));
-					os_free_mem(NULL, pwr);
-					goto parse_fail;
-				}
-				pwr->PwrCCK[i] =
-					(UCHAR)lval * 2 + ((lpwr_float > 4)?1:0);
-			}
-skip_cck_tbl:
-			for (i = 0; i < SINGLE_SKU_TABLE_OFDM_LENGTH; i++) {
-				long lpwr_float = 0;
-				token = rstrtok(NULL, " ");
-				if (token == NULL)
-					break;
-				pwr_int = strsep((char **)&token, ".");
-				pwr_float = strsep((char **)&token, ".");
-				if (pwr_int)
-					err = os_strtol(pwr_int, 10, &lval);
-				if (pwr_float)
-					err += os_strtol(pwr_float, 10, &lpwr_float);
-				if (err) {
-						DBGPRINT(RT_DEBUG_ERROR,
-							 ("%s#%d err %d paring %s\n", __func__,
-							 __LINE__, err, token));
-						os_free_mem(NULL, pwr);
-						goto parse_fail;
+				if (pwr->StartChannel <= 14) {
+					for (i = 0; i < SINGLE_SKU_TABLE_CCK_LENGTH; i++) {
+						token = rstrtok(NULL, " ");
+						if (token == NULL)
+							break;
+						pwr->PwrCCK[i] = simple_strtol(token, 0, 10) * 2;
 					}
-					pwr->PwrOFDM[i] =
-						(UCHAR)lval * 2 + ((lpwr_float > 4)?1:0);
-			}
-			for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++) {
-				long lpwr_float = 0;
-				token = rstrtok(NULL, " ");
-				if (token == NULL)
-					break;
-				pwr_int = strsep((char **)&token, ".");
-				pwr_float = strsep((char **)&token, ".");
-				if (pwr_int)
-					err = os_strtol(pwr_int, 10, &lval);
-				if (pwr_float)
-					err += os_strtol(pwr_float, 10, &lpwr_float);
-				if (err) {
-					DBGPRINT(RT_DEBUG_ERROR,
-						 ("%s#%d err %d\n", __func__,
-						 __LINE__, err));
-					os_free_mem(NULL, pwr);
-					goto parse_fail;
 				}
-				pwr->PwrHT20[i] = (UCHAR)lval * 2 + ((lpwr_float > 4)?1:0);
-			}
-			for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++) {
-				long lpwr_float = 0;
-				token = rstrtok(NULL, " ");
-				if (token == NULL)
-					break;
-				pwr_int = strsep((char **)&token, ".");
-				pwr_float = strsep((char **)&token, ".");
-				if (pwr_float)
-					err = os_strtol(pwr_int, 10, &lval);
-				if (pwr_float)
-					err += os_strtol(pwr_float, 10, &lpwr_float);
-				if (err) {
-					DBGPRINT(RT_DEBUG_ERROR,
-						 ("%s#%d err %d\n", __func__,
-						 __LINE__, err));
-					os_free_mem(NULL, pwr);
-					goto parse_fail;
+
+				for (i = 0; i < SINGLE_SKU_TABLE_OFDM_LENGTH; i++) {
+					token = rstrtok(NULL, " ");
+					if (token == NULL)
+						break;
+					pwr->PwrOFDM[i] = simple_strtol(token, 0, 10) * 2;
 				}
-				pwr->PwrHT40[i] = (UCHAR)lval * 2 + ((lpwr_float > 4)?1:0);
-			}
+
+				for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++) {
+					token = rstrtok(NULL, " ");
+					if (token == NULL)
+						break;
+					pwr->PwrHT20[i] = simple_strtol(token, 0, 10) * 2;
+				}
+
+				for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++) {
+					token = rstrtok(NULL, " ");
+					if (token == NULL)
+						break;
+					pwr->PwrHT40[i] = simple_strtol(token, 0, 10) * 2;
+				}
 
 #ifdef DOT11_VHT_AC
-			for (i = 0; i < SINGLE_SKU_TABLE_VHT_LENGTH; i++) {
-				long lpwr_float = 0;
-				token = rstrtok(NULL, " ");
-				if (token == NULL)
-					break;
-				pwr_int = strsep((char **)&token, ".");
-				pwr_float = strsep((char **)&token, ".");
-				if (pwr_int)
-					err = os_strtol(pwr_int, 10, &lval);
-				if (pwr_float)
-					err += os_strtol(pwr_float, 10, &lpwr_float);
-				if (err) {
-					DBGPRINT(RT_DEBUG_ERROR,
-						 ("%s#%d err %d\n", __func__,
-						 __LINE__, err));
-					os_free_mem(NULL, pwr);
-					goto parse_fail;
+				for (i = 0; i < SINGLE_SKU_TABLE_VHT_LENGTH; i++) {
+					token = rstrtok(NULL, " ");
+					if (token == NULL)
+						break;
+					pwr->PwrVHT80[i] = simple_strtol(token, 0, 10) * 2;
 				}
-				pwr->PwrVHT80[i] = (UCHAR)lval * 2 + ((lpwr_float > 4)?1:0);
-			}
 #endif /* DOT11_VHT_AC */
+
 				if (StartCh == NULL) {
 					StartCh = pwr;
-					DlListAddTail(sku_tbl, &pwr->List);
+					DlListAddTail(&pAd->SingleSkuPwrList, &pwr->List);
 				} else {
 					BOOLEAN isSame = TRUE;
+
 					for (i = 0; i < SINGLE_SKU_TABLE_CCK_LENGTH; i++) {
 						if (StartCh->PwrCCK[i] != pwr->PwrCCK[i]) {
 							isSame = FALSE;
 							break;
 						}
 					}
+
 					if (isSame == TRUE) {
 						for (i = 0; i < SINGLE_SKU_TABLE_OFDM_LENGTH; i++) {
 							if (StartCh->PwrOFDM[i] != pwr->PwrOFDM[i]) {
@@ -5579,6 +5164,7 @@ skip_cck_tbl:
 							}
 						}
 					}
+
 					if (isSame == TRUE) {
 						for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++) {
 							if (StartCh->PwrHT20[i] != pwr->PwrHT20[i]) {
@@ -5587,6 +5173,7 @@ skip_cck_tbl:
 							}
 						}
 					}
+
 					if (isSame == TRUE) {
 						for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++) {
 							if (StartCh->PwrHT40[i] != pwr->PwrHT40[i]) {
@@ -5606,49 +5193,77 @@ skip_cck_tbl:
 						}
 					}
 #endif /* DOT11_VHT_AC */
+
 					if (isSame == TRUE) {
 						os_free_mem(NULL, pwr);
 					} else {
 						StartCh = pwr;
-						DlListAddTail(sku_tbl, &StartCh->List);
+						DlListAddTail(&pAd->SingleSkuPwrList,
+							      &StartCh->List);
 						pwr = NULL;
 					}
 				}
+
 				StartCh->num++;
 				os_alloc_mem(pAd, (PUCHAR *) &temp, StartCh->num);
 				if (StartCh->Channel != NULL) {
 					NdisMoveMemory(temp, StartCh->Channel, StartCh->num - 1);
 					os_free_mem(pAd, StartCh->Channel);
 				}
+
 				StartCh->Channel = temp;
 				StartCh->Channel[StartCh->num - 1] = channel;
 			}
-			readline = ptr + 1;
-
-			DBGPRINT(RT_DEBUG_TRACE,
-				("%s:%d at End ptr = %p rl = %p and filesize = %d\n", __func__,
-				index, ptr, readline, filesize));
-			if ((filesize > 0) && (readline[0] == '#'))
-				continue;
-
 		}
+	}
 
-	/* ret = RTMPPrintSKUParams(pAd, sku_tbl); */
+	CH_POWER *ch, *ch_temp;
+	DlListForEachSafe(ch, ch_temp, &pAd->SingleSkuPwrList, CH_POWER, List) {
+		int i;
+		DBGPRINT(RT_DEBUG_TRACE,
+			 ("start ch = %d, ch->num = %d\n", ch->StartChannel, ch->num));
+
+		DBGPRINT(RT_DEBUG_TRACE, ("Channel: "));
+		for (i = 0; i < ch->num; i++)
+			DBGPRINT(RT_DEBUG_TRACE, ("%d ", ch->Channel[i]));
+		DBGPRINT(RT_DEBUG_TRACE, ("\n"));
+
+		DBGPRINT(RT_DEBUG_TRACE, ("CCK: "));
+		for (i = 0; i < SINGLE_SKU_TABLE_CCK_LENGTH; i++)
+			DBGPRINT(RT_DEBUG_TRACE, ("%d ", ch->PwrCCK[i]));
+		DBGPRINT(RT_DEBUG_TRACE, ("\n"));
+
+		DBGPRINT(RT_DEBUG_TRACE, ("OFDM: "));
+		for (i = 0; i < SINGLE_SKU_TABLE_OFDM_LENGTH; i++)
+			DBGPRINT(RT_DEBUG_TRACE, ("%d ", ch->PwrOFDM[i]));
+		DBGPRINT(RT_DEBUG_TRACE, ("\n"));
+
+		DBGPRINT(RT_DEBUG_TRACE, ("HT20: "));
+		for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++)
+			DBGPRINT(RT_DEBUG_TRACE, ("%d ", ch->PwrHT20[i]));
+		DBGPRINT(RT_DEBUG_TRACE, ("\n"));
+
+		DBGPRINT(RT_DEBUG_TRACE, ("HT40: "));
+		for (i = 0; i < SINGLE_SKU_TABLE_HT_LENGTH; i++)
+			DBGPRINT(RT_DEBUG_TRACE, ("%d ", ch->PwrHT40[i]));
+		DBGPRINT(RT_DEBUG_TRACE, ("\n"));
+
+		DBGPRINT(RT_DEBUG_TRACE, ("VHT80: "));
+		for (i = 0; i < SINGLE_SKU_TABLE_VHT_LENGTH; i++)
+			DBGPRINT(RT_DEBUG_TRACE, ("%d ", ch->PwrVHT80[i]));
+		DBGPRINT(RT_DEBUG_TRACE, ("\n"));
+	}
+
 	pAd->bOpenFileSuccess = TRUE;
-	ret = NDIS_STATUS_SUCCESS;
 
-parse_fail:
-read_fail:
-	if (buffer)
-		RtmpOsVfree(buffer);
-
-alloc_fail:
+	/* close file */
 	retval = RtmpOSFileClose(srcf);
 
-open_fail:
+free_resource:
 	RtmpOSFSInfoChange(&osFSInfo, FALSE);
+	os_free_mem(NULL, buffer);
 
-	return ret;
+	return TRUE;
 }
 
 #ifdef CUSTOMIZE_SINGLE_SKU_V2

@@ -342,7 +342,7 @@ CH_DESC Country_Region15_ChDesc_2GHZ_CE1[] = {
  *
 ********************************************************************/
 CH_DESC Country_Region0_ChDesc_5GHZ[] = {
-	{36, 4, CHANNEL_DEFAULT_PROP}
+	{36, 8, CHANNEL_DEFAULT_PROP}
 	,
 	{149, 5, CHANNEL_DEFAULT_PROP}
 	,
@@ -3639,21 +3639,4 @@ UCHAR RTMP_GetPrimaryCh(RTMP_ADAPTER *pAd, UCHAR ch)
 		primCh = pAd->CommonCfg.Channel;
 
 	return primCh;
-}
-
-/* Remote Passive scan channel */
-BOOLEAN IsRemotePassiveCh(RTMP_ADAPTER *pAd)
-{
-	UCHAR ch = pAd->CommonCfg.Channel;
-	static const UCHAR remote_passive_ch[] = {12, 13, 149, 153, 157, 161, 165, 0};
-	BOOLEAN status = FALSE;
-	INT idx;
-	for (idx = 0; remote_passive_ch[idx] != 0; idx++) {
-		if (remote_passive_ch[idx] == ch) {
-			status = TRUE;
-			break;
-		}
-	}
-	DBGPRINT(RT_DEBUG_ERROR, ("%s: CH %d status(%d)\n", __func__, ch, status));
-	return status;
 }

@@ -1,14 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ****************************************************************************
 
     Module Name:
@@ -7877,11 +7879,12 @@ void DisplayTxAgg(RTMP_ADAPTER *pAd)
 	totalCount = aggCnt[0] + aggCnt[1];
 	if (totalCount > 0)
 		for (i = 0; i < MAX_AGG_CNT; i++) {
-			DBGPRINT(RT_DEBUG_INFO,
+			DBGPRINT(RT_DEBUG_OFF,
 				 ("\t%d MPDU=%ld (%ld%%)\n", i + 1, aggCnt[i + 2],
 				  aggCnt[i + 2] * 100 / totalCount));
 		}
-	DBGPRINT(RT_DEBUG_INFO, ("====================\n"));
+	printk("====================\n");
+
 }
 
 
@@ -7930,17 +7933,17 @@ static INT set_mt_rf(RTMP_ADAPTER *ad, PSTRING arg)
 			rf_val = 0;
 			mt_rf_read(ad, (u8) rf_idx, (u16) offset, (u32 *) &rf_val);
 
-			DBGPRINT(RT_DEBUG_OFF,
+			DBGPRINT(RT_DEBUG_TRACE,
 				 ("%s():%d 0x%04x 0x%04x\n", __func__, rf_idx, offset, rf_val));
 		} else if (rv == 2) {
 			mt_rf_read(ad, (u8) rf_idx, (u16) offset, (u32 *) &rf_val);
-			DBGPRINT(RT_DEBUG_OFF,
+			DBGPRINT(RT_DEBUG_TRACE,
 				 ("%s():%d 0x%04x 0x%08x\n", __func__, rf_idx, offset, rf_val));
 		} else if (rv == 1) {
 			/* read all offset in the same rf index */
 			for (offset = 0; offset <= 0x33c; offset = offset + 4) {
 				mt_rf_read(ad, (u8) rf_idx, (u16) offset, (u32 *) &rf_val);
-				DBGPRINT(RT_DEBUG_OFF,
+				DBGPRINT(RT_DEBUG_TRACE,
 					 ("%s():%d 0x%04x 0x%08x\n", __func__, rf_idx, offset,
 					  rf_val));
 				rf_val = 0;
@@ -8084,124 +8087,6 @@ static INT Show_AteSetting_Proc(IN PRTMP_ADAPTER pAd, OUT PSTRING pBuf, IN ULONG
 }
 #endif /* RALINK_ATE */
 
-struct {
-	int mode;
-	PSTRING mode_name;
-} *PRTMP_mode_name_table, RTMP_mode_name_table[] = {
-	{ MODE_CCK, "CCK" },
-	{ MODE_OFDM, "OFDM" },
-	{ MODE_HTMIX, "HTMIX" },
-	{ MODE_HTGREENFIELD, "HTGREENFIELD" },
-	{ MODE_VHT, "VHT" },
-	{ -1, NULL }
-};
-
-struct {
-	int BW;
-	PSTRING BW_name;
-} *PRTMP_BW_name_table, RTMP_BW_name_table[] = {
-	{ BW_20, "20M" },
-	{ BW_40, "40M" },
-	{ BW_80, "80M" },
-	{ BW_10, "10M" },
-	{ -1, NULL }
-};
-
-INT RTMPGetBWName(IN INT BW, OUT PSTRING *pName)
-{
-	for (PRTMP_BW_name_table = RTMP_BW_name_table;
-		PRTMP_BW_name_table->BW_name; PRTMP_BW_name_table++) {
-		if (PRTMP_BW_name_table->BW == BW) {
-			*pName = PRTMP_BW_name_table->BW_name;
-			return 0;
-		}
-	}
-	if (PRTMP_BW_name_table->BW_name == NULL)
-		return -1;
-	else
-		return 0;
-}
-
-INT RTMPGetModeName(IN INT mode, OUT PSTRING *pName)
-{
-	for (PRTMP_mode_name_table = RTMP_mode_name_table;
-		PRTMP_mode_name_table->mode_name; PRTMP_mode_name_table++) {
-		if (PRTMP_mode_name_table->mode == mode) {
-			*pName = PRTMP_mode_name_table->mode_name;
-			return 0;
-		}
-	}
-	if (PRTMP_mode_name_table->mode_name == NULL)
-		return -1;
-	else
-		return 0;
-}
-
-#ifdef CONFIG_AP_SUPPORT
-#ifdef MCAST_RATE_SPECIFIC
-static INT Show_MCRate(IN PRTMP_ADAPTER pAd, OUT PSTRING pBuf, IN ULONG BufLen)
-{
-	PSTRING Mode_String = NULL;
-	PSTRING BW_String = NULL;
-
-	RTMPGetModeName(pAd->CommonCfg.MCastPhyMode.field.MODE, &Mode_String);
-	RTMPGetBWName(pAd->CommonCfg.MCastPhyMode.field.BW, &BW_String);
-	snprintf(pBuf, BufLen, "Multicast Frame Data Rate:\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"TxMode=%s   BW=%s   MCS=%d   SGI=%d   LDPC=%d   STBC=%d\n\n",
-		Mode_String, BW_String, pAd->CommonCfg.MCastPhyMode.field.MCS,
-		pAd->CommonCfg.MCastPhyMode.field.ShortGI, pAd->CommonCfg.MCastPhyMode.field.ldpc,
-		pAd->CommonCfg.MCastPhyMode.field.STBC);
-
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"Multicast rate set command help:\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set MCPhyMode=0     ==>Disable MC Fix Rate Mode\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set MCPhyMode=[x]   ==>  1:CCK  2:OFDM  3:HTMIX  4:VHT\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set MCBW=[x]        ==>  1:20M  1:40M  2:80M\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set MCMCS=[x]       ==>  [x]:number of the MCS\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set MCSGI=[x]       ==>  0:Disable  1:enable\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set MCLDPC=[x]      ==>  0:Disable  1:enable\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set MCSTBC=[x]      ==>  0:Disable  1:enable\n");
-
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set DisableCTS=[x]  ==>  "
-		"0:Default protection setting   1:No CTS before TX frame\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf),
-		"iwpriv wlan0 set ApplyMCRateToUC=[x]  ==>  "
-		"0:Use default autorate for UC frame   1:Force UC frame to use MC fix rate\n");
-
-	return 0;
-}
-#endif /* MCAST_RATE_SPECIFIC */
-#endif /* CONFIG_AP_SUPPORT */
-
-#ifdef ED_MONITOR
-static INT Show_EDstatus(IN PRTMP_ADAPTER pAd, OUT PSTRING pBuf, IN ULONG BufLen)
-{
-	if (pAd->ed_tx_stoped)
-		snprintf(pBuf, BufLen, "\nEDCCA status: triggered\n");
-	else
-		snprintf(pBuf, BufLen, "\nEDCCA status: clear\n");
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf), "edcca check enable: %d\n", pAd->ed_chk);
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf), "hit stop tx count: %d\n", pAd->ed_hitcount);
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf), "hw threshold 2g: 0x%x\n", pAd->ed_hw_th_2g);
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf), "hw threshold 5g: 0x%x\n", pAd->ed_hw_th_5g);
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf), "sw monitor period: %d\n", pAd->ed_chk_period);
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf), "sw threshold: %d\n", pAd->ed_threshold);
-	snprintf(pBuf + strlen(pBuf), BufLen - strlen(pBuf), "sw block tx count threshold: %d\n",
-		pAd->ed_block_tx_threshold);
-	return 0;
-}
-#endif /* MCAST_RATE_SPECIFIC */
-
-
 static struct {
 	PSTRING name;
 	 INT(*show_proc) (RTMP_ADAPTER *pAd, PSTRING arg, ULONG BufLen);
@@ -8281,15 +8166,6 @@ static struct {
 #ifdef RALINK_ATE
 	{"ATESetting", Show_AteSetting_Proc},
 #endif /* RALINK_ATE */
-#ifdef CONFIG_AP_SUPPORT
-#ifdef MCAST_RATE_SPECIFIC
-	{"MCRate", Show_MCRate },
-#endif /* MCAST_RATE_SPECIFIC */
-#endif /* CONFIG_AP_SUPPORT */
-#ifdef ED_MONITOR
-	{"EDStatus", Show_EDstatus },
-#endif /* MCAST_RATE_SPECIFIC */
-
 	{
 	NULL, NULL}
 };
@@ -8843,54 +8719,3 @@ INT show_channel_info(IN RTMP_ADAPTER *pAd, IN PSTRING pOutBuf, IN UINT32 size)
 	return NDIS_STATUS_SUCCESS;
 }
 #endif /* CUSTOMIZED_COUNTRY_REGION_CE_1 */
-
-#ifdef DYNAMIC_VGA_SUPPORT
-INT Set_Agc_Threshold(IN PRTMP_ADAPTER pAd, IN PSTRING arg)
-{
-	PSTRING value;
-	INT i, ret;
-	INT32 prev = 0;
-	LONG thres[AGC_THRES_NUM];
-
-	for (i = 0, value = rstrtok(arg, ":");
-	     value && i < AGC_THRES_NUM;
-	     value = rstrtok(NULL, ":"), i++) {
-		/* sanity check */
-		ret = os_strtol(value, 10, &thres[i]);
-		if (ret >= 0 && thres[i] <= 0 && thres[i] <= prev && thres[i] >= -127) {
-			prev = thres[i];
-			DBGPRINT(RT_DEBUG_OFF, ("%s(): thres[%d]=%d\n",
-				 __func__, i, (INT32)thres[i]));
-		} else {
-			DBGPRINT(RT_DEBUG_OFF, ("%s(): Invalid vaule=%s\n", __func__, value));
-			return FALSE;
-		}
-	}
-
-	if (i != AGC_THRES_NUM)
-		return FALSE;
-
-	for (i = 0; i < AGC_THRES_NUM; i++) {
-		DBGPRINT(RT_DEBUG_OFF, ("%s(): agc_vga_threshold[%d]=%d\n",
-			 __func__, i, (INT32)thres[i]));
-		pAd->CommonCfg.lna_vga_ctl.agc_vga_threshold[i] = thres[i];
-	}
-
-	return TRUE;
-}
-
-INT Set_Agc_Lowerbound(IN PRTMP_ADAPTER pAd, IN PSTRING arg)
-{
-	INT ret;
-	ULONG lowerbound;
-
-	ret = os_strtol(arg, 10, &lowerbound);
-	if (ret < 0 && lowerbound < 0 && lowerbound > 16)
-		return FALSE;
-
-	pAd->CommonCfg.lna_vga_ctl.lowbound = lowerbound;
-	DBGPRINT(RT_DEBUG_OFF, ("%s(): lowerbound=%d\n", __func__, (INT32)lowerbound));
-	return TRUE;
-}
-#endif /* DYNAMIC_VGA_SUPPORT */
-

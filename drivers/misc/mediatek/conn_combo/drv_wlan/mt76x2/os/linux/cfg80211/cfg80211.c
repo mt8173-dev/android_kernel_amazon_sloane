@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2009, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -54,8 +55,24 @@ extern int RtmpIoctl_rt_ioctl_siwgenie(RTMP_ADAPTER *pAd, const u8 *ie, size_t i
 #ifdef RT_CFG80211_SUPPORT
 
 /* 36 ~ 64, 100 ~ 136, 140 ~ 161 */
+#define CFG80211_NUM_OF_CHAN_5GHZ	(sizeof(Cfg80211_Chan)-CFG80211_NUM_OF_CHAN_2GHZ)
 
 /* all available channels */
+static const UCHAR Cfg80211_Chan[] = {
+	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+
+	/* 802.11 UNI / HyperLan 2 */
+	36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64,
+
+	/* 802.11 HyperLan 2 */
+	100, 104, 108, 112, 116, 118, 120, 124, 126, 128, 132, 134, 136,
+
+	/* 802.11 UNII */
+	140, 149, 151, 153, 157, 159, 161, 165, 167, 169, 171, 173,
+
+	/* Japan */
+	184, 188, 192, 196, 208, 212, 216,
+};
 
 static const UINT32 CipherSuites[] = {
 	WLAN_CIPHER_SUITE_WEP40,
@@ -340,15 +357,6 @@ static int CFG80211_OpsScan(struct wiphy *pWiphy,
 		CFG80211OS_ScanEnd(pCfg80211_CB, TRUE);
 		return 0;
 	}
-
-#if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	if (((struct _RTMP_ADAPTER *)pAd)->WOW_Cfg.extMode & WOW_FAKE_SUSPEND) {
-		CFG80211DBG(RT_DEBUG_TRACE, ("\n\n\n\n\n80211> WOW Suspend\n\n\n\n\n"));
-		CFG80211OS_ScanEnd(pCfg80211_CB, TRUE);
-		return 0;
-	}
-#endif
-
 #ifdef CONFIG_MULTI_CHANNEL
 	UCHAR Flag = 0;
 	RTMP_DRIVER_ADAPTER_MCC_DHCP_PROTECT_STATUS(pAd, &Flag);
@@ -362,11 +370,15 @@ static int CFG80211_OpsScan(struct wiphy *pWiphy,
 
 #endif /* CONFIG_MULTI_CHANNEL */
 
-	/* YF@20120321: Using Cfg80211_CB carry on pAd struct to overwirte the pWpsProbeReqIe. */
-	/* lab@20150930: If new scan request doesn't have extra ie passed from wpa_supplicant,
-	 * driver stored extra ie from previous scan request will be removed.
-	 */
-	RTMP_DRIVER_80211_SCAN_EXTRA_IE_SET(pAd);
+	if (pRequest->ie_len != 0) {
+		DBGPRINT(RT_DEBUG_TRACE,
+			 ("80211> ExtraIEs Not Null in ProbeRequest from upper layer...\n"));
+		/* YF@20120321: Using Cfg80211_CB carry on pAd struct to overwirte the pWpsProbeReqIe. */
+		RTMP_DRIVER_80211_SCAN_EXTRA_IE_SET(pAd);
+	} else {
+		DBGPRINT(RT_DEBUG_TRACE,
+			 ("80211> ExtraIEs Null in ProbeRequest from upper layer...\n"));
+	}
 
 	memset(&Wreq, 0, sizeof(Wreq));
 	memset(&IwReq, 0, sizeof(IwReq));
@@ -837,33 +849,16 @@ static int CFG80211_OpsKeyAdd(struct wiphy *pWiphy, struct net_device *pNdev, UI
 	if (pAd == NULL)
 		return -EINVAL;
 
-
-	if (unlikely(!pParams->key))
-		return -EINVAL;
-
 #ifdef RT_CFG80211_DEBUG
 	hex_dump("KeyBuf=", (UINT8 *) pParams->key, pParams->key_len);
 #endif /* RT_CFG80211_DEBUG */
 
 	CFG80211DBG(RT_DEBUG_OFF,
-		    ("80211> KeyIdx = %d, pParams->cipher = %x, Pairwise:%x\n", KeyIdx, pParams->cipher, Pairwise));
+		    ("80211> KeyIdx = %d, pParams->cipher = %x\n", KeyIdx, pParams->cipher));
 
 	if (pParams->key_len >= sizeof(KeyInfo.KeyBuf))
 		return -EINVAL;
 	/* End of if */
-	/* check_if_all-zero-key() */
-	do {
-		int i;
-
-		for (i = 0; i < pParams->key_len; ++i) {
-			if (pParams->key[i])
-				break;
-		}
-
-		/* return 0 right away if all-zero-key */
-		if (i == pParams->key_len)
-			return 0;
-	} while (0);
 
 	/* init */
 	memset(&KeyInfo, 0, sizeof(KeyInfo));
@@ -935,7 +930,7 @@ static int CFG80211_OpsKeyAdd(struct wiphy *pWiphy, struct net_device *pNdev, UI
 		RTMP_DRIVER_80211_SEND_WIRELESS_EVENT(pAd, pMacAddr);
 	}
 #endif /* RT_P2P_SPECIFIC_WIRELESS_EVENT */
-	((RTMP_ADAPTER *)pAd)->swChiperErrDumped = FALSE;
+
 	return 0;
 
 }
@@ -1877,7 +1872,6 @@ static int CFG80211_OpsStartAp(struct wiphy *pWiphy,
 		CoexLinkUpHandler(ad, info);
 	}
 #endif /*MT76XX_BTCOEX_SUPPORT */
-	Enable_netifQ(pAd);
 	return 0;
 }
 
@@ -1927,14 +1921,11 @@ static int CFG80211_OpsChangeBeacon(struct wiphy *pWiphy,
 static int CFG80211_OpsStopAp(struct wiphy *pWiphy, struct net_device *netdev)
 {
 	RTMP_ADAPTER *pAd;
-	UCHAR pMacF[MAC_ADDR_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-	UINT32 MacReg, MTxCycle;
 
 	MAC80211_PAD_GET(pAd, pWiphy);
 
 	CFG80211DBG(RT_DEBUG_OFF, ("80211> %s ==>\n", __func__));
-	Disable_netifQ(pAd);
-	CFG80211_ApStaDel(pAd, pMacF);
+
 	RTMP_DRIVER_80211_BEACON_DEL(pAd);
 
 	RTMPReadParametersHook(pAd);
@@ -1944,146 +1935,10 @@ static int CFG80211_OpsStopAp(struct wiphy *pWiphy, struct net_device *netdev)
 	pAd->CoexMode.LinkStatus &= ~COEX_GO_LINK;
 	COEXLinkDown(pAd, pAd->cfg80211_ctrl.P2PCurrentAddress);
 #endif /*MT76XX_BTCOEX_SUPPORT */
-	/*
-	Check page count in TxQ are clear,
-	 */
-	for (MTxCycle = 0; MTxCycle < 300; MTxCycle++) {
-		BOOLEAN bFree = TRUE;
-		RTMP_IO_READ32(pAd, 0x438, &MacReg);
-		if (MacReg != 0)
-			bFree = FALSE;
-		RTMP_IO_READ32(pAd, 0xa30, &MacReg);
-		if (MacReg & 0x000000FF)
-			bFree = FALSE;
-		RTMP_IO_READ32(pAd, 0xa34, &MacReg);
-		if (MacReg & 0xFF00FF00)
-			bFree = FALSE;
-		if (bFree)
-			break;
-	}
 
-	if (MTxCycle >= 300) {
-		DBGPRINT(RT_DEBUG_ERROR, ("Check TxQ page count max\n"));
-		RTMP_IO_READ32(pAd, 0x0a30, &MacReg);
-		DBGPRINT(RT_DEBUG_TRACE, ("0x0a30 = 0x%08x\n", MacReg));
-
-		RTMP_IO_READ32(pAd, 0x0a34, &MacReg);
-		DBGPRINT(RT_DEBUG_TRACE, ("0x0a34 = 0x%08x\n", MacReg));
-
-		RTMP_IO_READ32(pAd, 0x438, &MacReg);
-		DBGPRINT(RT_DEBUG_TRACE, ("0x438 = 0x%08x\n", MacReg));
-	}
-	CFG80211DBG(RT_DEBUG_TRACE, ("80211> %s ==> MTxCycle(%d)\n", __func__, MTxCycle));
 	return 0;
 }
-
-#ifdef CONFIG_NL80211_GO_CHANSWITCH
-static int CFG80211_OpsGOChanSwitch(struct wiphy *pWiphy,
-				    void *data, int len)
-{
-	RTMP_ADAPTER *pAd;
-	UCHAR pGOMacBackup[MAC_ADDR_LEN];
-	UCHAR pMacNull[MAC_ADDR_LEN] = {0, 0, 0, 0, 0, 0};
-	struct cfg80211_go_chan_switch *p_go_chan_switch;
-	struct cfg80211_chan_def *chan_def;
-	PMULTISSID_STRUCT pMbss;
-#ifdef RT_CFG80211_P2P_CONCURRENT_DEVICE
-	PNET_DEV pNetDev = NULL;
-#endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */
-
-	p_go_chan_switch = (struct cfg80211_go_chan_switch *)data;
-
-	MAC80211_PAD_GET(pAd, pWiphy);
-
-	CFG80211DBG(RT_DEBUG_OFF, ("80211> %s ==> %d\n", __func__, p_go_chan_switch->step));
-	if (p_go_chan_switch->step == 0) {
-		Disable_netifQ(pAd);
-		AsicDisableBeacon(pAd);
-		return 0;
-	}
-
-	/* set channel callback has been replaced by using chandef of cfg80211_ap_settings */
-	chan_def = p_go_chan_switch->chan_def;
-	CFG80211DBG(RT_DEBUG_OFF, ("%s freq=%d\n", __func__, chan_def->chan->center_freq));
-
-	/* set channel callback has been replaced by using chandef of cfg80211_ap_settings */
-	if (chan_def->chan) {
-		CFG80211_CB *p80211CB;
-		CMD_RTPRIV_IOCTL_80211_CHAN ChanInfo;
-		UINT32 ChanId;
-
-		/* init */
-		memset(&ChanInfo, 0, sizeof(ChanInfo));
-
-		p80211CB = NULL;
-		RTMP_DRIVER_80211_CB_GET(pAd, &p80211CB);
-
-		if (p80211CB == NULL) {
-			CFG80211DBG(RT_DEBUG_ERROR, ("80211> p80211CB == NULL!\n"));
-			goto restore;
-		}
-
-		pMbss = &pAd->ApCfg.MBSSID[MAIN_MBSSID];
-#ifdef RT_CFG80211_P2P_CONCURRENT_DEVICE
-		pNetDev = RTMP_CFG80211_FindVifEntry_ByType(pAd, RT_CMD_80211_IFTYPE_P2P_GO);
-		/* Using netDev ptr from VifList if VifDevList Exist */
-		if ((pAd->cfg80211_ctrl.Cfg80211VifDevSet.vifDevList.size > 0) &&
-		    (pNetDev != NULL)) {
-			COPY_MAC_ADDR(pGOMacBackup, pNetDev->dev_addr);
-			COPY_MAC_ADDR(pNetDev->dev_addr, pMacNull);
-
-		}
-#endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */
-
-		/* get channel number */
-		ChanId = ieee80211_frequency_to_channel(chan_def->chan->center_freq);
-		CFG80211DBG(RT_DEBUG_OFF, ("80211> Channel = %d\n", ChanId));
-		ChanInfo.ChanId = ChanId;
-
-		ChanInfo.IfType = RT_CMD_80211_IFTYPE_P2P_GO;
-
-		CFG80211DBG(RT_DEBUG_TRACE, ("80211> ChanInfo.IfType == %d!\n", ChanInfo.IfType));
-
-		switch (cfg80211_get_chandef_type(chan_def)) {
-		case NL80211_CHAN_NO_HT:
-			ChanInfo.ChanType = RT_CMD_80211_CHANTYPE_NOHT;
-			break;
-		case NL80211_CHAN_HT20:
-			ChanInfo.ChanType = RT_CMD_80211_CHANTYPE_HT20;
-			break;
-		case NL80211_CHAN_HT40MINUS:
-			ChanInfo.ChanType = RT_CMD_80211_CHANTYPE_HT40MINUS;
-			break;
-		case NL80211_CHAN_HT40PLUS:
-			ChanInfo.ChanType = RT_CMD_80211_CHANTYPE_HT40PLUS;
-			break;
-		default:
-			ChanInfo.ChanType = RT_CMD_80211_CHANTYPE_NOHT;
-			break;
-		}
-
-		CFG80211DBG(RT_DEBUG_OFF,
-			    ("80211> ChanInfo.ChanType == %d!\n", ChanInfo.ChanType));
-		ChanInfo.MonFilterFlag = p80211CB->MonFilterFlag;
-
-		/* set channel */
-		RTMP_DRIVER_80211_CHAN_SET(pAd, &ChanInfo);
-
-#ifdef RT_CFG80211_P2P_CONCURRENT_DEVICE
-		/* Using netDev ptr from VifList if VifDevList Exist */
-		if (pNetDev != NULL)
-			COPY_MAC_ADDR(pNetDev->dev_addr, pGOMacBackup);
-#endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */
-	}
-
-restore:
-	AsicEnableBeacon(pAd);
-	Enable_netifQ(pAd);
-	return 0;
-}
-#endif /* CONFIG_NL80211_GO_CHANSWITCH */
 #endif /* CONFIG_AP_SUPPORT */
-
 static int CFG80211_OpsChangeBss(struct wiphy *pWiphy,
 				 struct net_device *netdev, struct bss_parameters *params)
 {
@@ -2432,10 +2287,7 @@ struct cfg80211_ops CFG80211_Ops = {
 	/* polls the hw rfkill line */
 	.rfkill_poll = CFG80211_OpsRFKill,
 #endif /* RFKILL_HW_SUPPORT */
-#ifdef CONFIG_NL80211_GO_CHANSWITCH
-	/* test cmd for go channel switch */
-	.testmode_cmd = CFG80211_OpsGOChanSwitch,
-#endif /* CONFIG_NL80211_GO_CHANSWITCH */
+
 	/* set the bitrate mask configuration */
 	.set_bitrate_mask = CFG80211_OpsBitrateSet,
 	/* get site survey information */
@@ -2550,6 +2402,7 @@ static struct wireless_dev *CFG80211_WdevAlloc(IN CFG80211_CB *pCfg80211_CB,
 {
 	struct wireless_dev *pWdev;
 	ULONG *pPriv;
+
 	/*
 	 * We're trying to have the following memory layout:
 	 *
@@ -2626,10 +2479,8 @@ static struct wireless_dev *CFG80211_WdevAlloc(IN CFG80211_CB *pCfg80211_CB,
 	pWdev->wiphy->reg_notifier = CFG80211_RegNotifier;
 
 	/* init channel information */
-	if (!CFG80211_SupBandInit(pCfg80211_CB, pBandInfo, pWdev->wiphy, NULL, NULL)) {
-		DBGPRINT(RT_DEBUG_ERROR, ("80211> CFG80211_SupBandInit fail!\n"));
-		goto LabelErrWiphyNew;
-	}
+	CFG80211_SupBandInit(pCfg80211_CB, pBandInfo, pWdev->wiphy, NULL, NULL);
+
 #ifdef CONFIG_ANDROID
 	/* only defined in Android kernel with CONFIG_ANDROID? */
 	/* Ensure passive/beaconing flags not be lifted by cfg80211 due to
@@ -2686,7 +2537,6 @@ static struct wireless_dev *CFG80211_WdevAlloc(IN CFG80211_CB *pCfg80211_CB,
 	return pWdev;
 
 LabelErrReg:
-	CFG80211OS_Free_ch_bcn_rate(pCfg80211_CB);
 	wiphy_free(pWdev->wiphy);
 
 LabelErrWiphyNew:
@@ -2728,10 +2578,9 @@ BOOLEAN CFG80211_Register(IN VOID *pAd, IN struct device *pDev, IN struct net_de
 		return FALSE;
 	}
 
-	NdisZeroMemory(pCfg80211_CB, sizeof(CFG80211_CB));
-
 	/* allocate wireless device */
 	RTMP_DRIVER_80211_BANDINFO_GET(pAd, &BandInfo);
+
 	pCfg80211_CB->pCfg80211_Wdev = CFG80211_WdevAlloc(pCfg80211_CB, &BandInfo, pAd, pDev);
 	if (pCfg80211_CB->pCfg80211_Wdev == NULL) {
 		DBGPRINT(RT_DEBUG_ERROR, ("80211> Allocate Wdev fail!\n"));
@@ -2796,7 +2645,6 @@ static void CFG80211_RegNotifier(
 {
 	VOID *pAd;
 	ULONG *pPriv;
-	RTMP_ADAPTER *ad;
 
 	/* sanity check */
 	pPriv = (ULONG *) (wiphy_priv(pWiphy));
@@ -2807,7 +2655,6 @@ static void CFG80211_RegNotifier(
 		return;
 	}
 
-	ad = (RTMP_ADAPTER *)pAd;
 	/* End of if */
 	/*
 	   Change the band settings (PASS scan, IBSS allow, or DFS) in mac80211
@@ -2879,37 +2726,20 @@ static void CFG80211_RegNotifier(
 		break;
 	}			/* End of switch */
 
-	CFG80211DBG(RT_DEBUG_OFF, ("%c%c  dfs_region %d\n",
-		pRequest->alpha2[0], pRequest->alpha2[1], pRequest->dfs_region));
+	CFG80211DBG(RT_DEBUG_OFF, ("%c%c\n", pRequest->alpha2[0], pRequest->alpha2[1]));
 
 	/* only follow rules from user */
 	if (pRequest->initiator == NL80211_REGDOM_SET_BY_USER) {
 		/* keep Alpha2 and we can re-call the function when interface is up */
 		CMD_RTPRIV_IOCTL_80211_REG_NOTIFY RegInfo;
+
 		RegInfo.Alpha2[0] = pRequest->alpha2[0];
 		RegInfo.Alpha2[1] = pRequest->alpha2[1];
 		RegInfo.pWiphy = pWiphy;
+
 		RTMP_DRIVER_80211_REG_NOTIFY(pAd, &RegInfo);
-		ad->applyUpperLayerReg = TRUE;
-	} else if (pRequest->initiator == NL80211_REGDOM_SET_BY_CORE) {
-		CFG80211_SyncCore_ChList(pAd, pWiphy);
-		ad->applyUpperLayerReg = TRUE;
 	}
 	/* End of if */
-#ifdef ED_MONITOR
-	if (ad->ed_fix) {
-		/*pRequest->dfs_region also unset so we have to check in driver*/
-		UINT8 dfs_region = CFG80211DRV_GetDFSRegion(pAd, pRequest->alpha2[0], pRequest->alpha2[1]);
-		if (dfs_region == NL80211_DFS_ETSI && !ad->ed_chk) {
-			DBGPRINT(RT_DEBUG_OFF, ("%s: DFS region is  ETSI, set ed on\n", __func__));
-			ed_monitor_init(ad);
-		} else if (dfs_region != NL80211_DFS_ETSI && ad->ed_chk) {
-			DBGPRINT(RT_DEBUG_OFF, ("%s: go to ed_monitor_exit()!!\n", __func__));
-			ed_monitor_exit(ad);
-		} else
-			DBGPRINT(RT_DEBUG_OFF, ("%s: ed_chk %d no update\n", __func__, ad->ed_chk));
-	}
-#endif
 	return;
 }				/* End of CFG80211_RegNotifier */
 

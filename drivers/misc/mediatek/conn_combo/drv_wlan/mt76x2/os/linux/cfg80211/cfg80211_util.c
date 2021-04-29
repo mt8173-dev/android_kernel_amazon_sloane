@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2013, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -30,6 +31,7 @@
 #include "chlist.h"
 
 /* all available channels */
+#ifdef FORCE_CUSTOMIZED_COUNTRY_REGION
 UCHAR Cfg80211_Chan[] = {
 	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
 
@@ -45,10 +47,27 @@ UCHAR Cfg80211_Chan[] = {
 	/* Japan */
 	184, 188, 192, 196, 208, 212, 216,
 };
-const int Num_Cfg80211_Chan = (sizeof(Cfg80211_Chan)/sizeof(Cfg80211_Chan[0]));
+#else /* !FORCE_CUSTOMIZED_COUNTRY_REGION */
+UCHAR Cfg80211_Chan[] = {
+	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+
+	/* 802.11 UNI / HyperLan 2 */
+	36, 38, 40, 44, 46, 48, 52, 54, 56, 60, 62, 64,
+
+	/* 802.11 HyperLan 2 */
+	100, 104, 108, 112, 116, 118, 120, 124, 126, 128, 132, 134, 136,
+
+	/* 802.11 UNII */
+	140, 149, 151, 153, 157, 159, 161, 165, 167, 169, 171, 173,
+
+	/* Japan */
+	184, 188, 192, 196, 208, 212, 216,
+};
+#endif /* FORCE_CUSTOMIZED_COUNTRY_REGION */
+
 #ifndef FORCE_CUSTOMIZED_COUNTRY_REGION
 UCHAR Cfg80211_RadarChan[] = {
-	52, 54, 56, 60, 62, 64, 100, 104, 108, 112, 116, 118, 120, 124, 126, 128, 132, 134, 136, 140,
+	52, 54, 56, 60, 62, 64, 100, 104,
 };
 #endif /* FORCE_CUSTOMIZED_COUNTRY_REGION */
 /*
@@ -155,21 +174,6 @@ static BOOLEAN IsRadarChannel(UCHAR ch)
 	return FALSE;
 }
 #endif /* FORCE_CUSTOMIZED_COUNTRY_REGION */
-
-VOID CFG80211OS_Free_ch_bcn_rate(VOID *pCB)
-{
-	CFG80211_CB *pCfg80211_CB = (CFG80211_CB *)pCB;
-
-	if (pCfg80211_CB->pCfg80211_Channels != NULL)
-		kfree(pCfg80211_CB->pCfg80211_Channels);
-
-	if (pCfg80211_CB->ch_flags_by_beacon != NULL)
-		kfree(pCfg80211_CB->ch_flags_by_beacon);
-
-	if (pCfg80211_CB->pCfg80211_Rates != NULL)
-		kfree(pCfg80211_CB->pCfg80211_Rates);
-	return;
-}
 /*
 ========================================================================
 Routine Description:
@@ -205,11 +209,15 @@ VOID CFG80211OS_UnRegister(VOID *pCB, VOID *pNetDevOrg)
 		wiphy_unregister(pCfg80211_CB->pCfg80211_Wdev->wiphy);
 		wiphy_free(pCfg80211_CB->pCfg80211_Wdev->wiphy);
 		kfree(pCfg80211_CB->pCfg80211_Wdev);
-		pCfg80211_CB->pCfg80211_Wdev = NULL;
 
-		CFG80211OS_Free_ch_bcn_rate(pCfg80211_CB);
+		if (pCfg80211_CB->pCfg80211_Channels != NULL)
+			kfree(pCfg80211_CB->pCfg80211_Channels);
+
+		if (pCfg80211_CB->pCfg80211_Rates != NULL)
+			kfree(pCfg80211_CB->pCfg80211_Rates);
+
+		pCfg80211_CB->pCfg80211_Wdev = NULL;
 		pCfg80211_CB->pCfg80211_Channels = NULL;
-		pCfg80211_CB->ch_flags_by_beacon = NULL;
 		pCfg80211_CB->pCfg80211_Rates = NULL;
 
 		/* must reset to NULL; or kernel will panic in unregister_netdev */
@@ -262,7 +270,6 @@ BOOLEAN CFG80211_SupBandInit(IN VOID *pCB,
 	UINT32 NumOfChan = 0, NumOfRate = 0;
 	UINT32 IdLoop = 0;
 	UINT32 CurTxPower;
-	struct _CH_FLAGS_BEACON *ch_flags_from_beaon = NULL;
 
 	/* sanity check */
 	if (pDriverBandInfo->RFICType == 0)
@@ -293,22 +300,11 @@ BOOLEAN CFG80211_SupBandInit(IN VOID *pCB,
 		}
 	}
 
-	if (!ch_flags_from_beaon) {
-		ch_flags_from_beaon = kzalloc(sizeof(struct _CH_FLAGS_BEACON) * NumOfChan, GFP_KERNEL);
-		if (!ch_flags_from_beaon) {
-			kfree(pChannels);
-			DBGPRINT(RT_DEBUG_ERROR,
-				("80211> chlist flags for beacon update allocat fail\n"));
-			return FALSE;
-		}
-	}
-
 	/* 4. Allocate the Rate instance */
 	if (pRates == NULL) {
 		pRates = kzalloc(sizeof(*pRates) * NumOfRate, GFP_KERNEL);
 		if (!pRates) {
-			kfree(pChannels);
-			kfree(ch_flags_from_beaon);
+			os_free_mem(NULL, pChannels);
 			DBGPRINT(RT_DEBUG_ERROR, ("80211> ieee80211_rate allocation fail!\n"));
 			return FALSE;
 		}
@@ -337,9 +333,6 @@ BOOLEAN CFG80211_SupBandInit(IN VOID *pCB,
 			    ieee80211_channel_to_frequency(Cfg80211_Chan[IdLoop],
 							   IEEE80211_BAND_2GHZ);
 		}
-
-		ch_flags_from_beaon[IdLoop].ch = Cfg80211_Chan[IdLoop];
-		ch_flags_from_beaon[IdLoop].flags = 0xffffffff;
 		pChannels[IdLoop].hw_value = IdLoop;
 
 		if (IdLoop < CFG80211_NUM_OF_CHAN_2GHZ)
@@ -392,12 +385,8 @@ BOOLEAN CFG80211_SupBandInit(IN VOID *pCB,
 	if (pDriverBandInfo->RFICType & RFIC_24GHZ) {
 		pBand->n_channels = CFG80211_NUM_OF_CHAN_2GHZ;
 		pBand->n_bitrates = NumOfRate;
-		if (pBand->channels != pChannels)	{
-			pBand->channels = pChannels;
-		};
-		if (pBand->bitrates != pRates)	{
-			pBand->bitrates = pRates;
-		};
+		pBand->channels = pChannels;
+		pBand->bitrates = pRates;
 
 		/* for HT, assign pBand->ht_cap */
 		pBand->ht_cap.ht_supported = true;
@@ -446,13 +435,8 @@ BOOLEAN CFG80211_SupBandInit(IN VOID *pCB,
 	if (pDriverBandInfo->RFICType & RFIC_5GHZ) {
 		pBand->n_channels = CFG80211_NUM_OF_CHAN_5GHZ;
 		pBand->n_bitrates = NumOfRate - 4;	/*Disable 11B rate */
-
-		if (pBand->channels != &pChannels[CFG80211_NUM_OF_CHAN_2GHZ])	{
-			pBand->channels = &pChannels[CFG80211_NUM_OF_CHAN_2GHZ];
-		};
-		if (pBand->bitrates != &pRates[4])	{
-			pBand->bitrates = &pRates[4];
-		};
+		pBand->channels = &pChannels[CFG80211_NUM_OF_CHAN_2GHZ];
+		pBand->bitrates = &pRates[4];
 
 		/* for HT, assign pBand->ht_cap */
 		pBand->ht_cap.ht_supported = true;
@@ -495,25 +479,8 @@ BOOLEAN CFG80211_SupBandInit(IN VOID *pCB,
 	}
 
 	/* 9. re-assign to mainDevice info */
-	/* CFG80211OS_SupBandReInit assign same pointers, so have to check it*/
-	if (pCfg80211_CB->pCfg80211_Channels != pChannels)	{
-		if (pCfg80211_CB->pCfg80211_Channels)
-			kfree(pCfg80211_CB->pCfg80211_Channels);
-
-		pCfg80211_CB->pCfg80211_Channels = pChannels;
-	};
-
-	if (pCfg80211_CB->pCfg80211_Rates != pRates)	{
-		if (pCfg80211_CB->pCfg80211_Rates)
-			kfree(pCfg80211_CB->pCfg80211_Rates);
-
-		pCfg80211_CB->pCfg80211_Rates = pRates;
-	};
-
-	if (pCfg80211_CB->ch_flags_by_beacon)
-		kfree(pCfg80211_CB->ch_flags_by_beacon);
-
-	pCfg80211_CB->ch_flags_by_beacon = ch_flags_from_beaon;
+	pCfg80211_CB->pCfg80211_Channels = pChannels;
+	pCfg80211_CB->pCfg80211_Rates = pRates;
 
 	return TRUE;
 }
@@ -660,103 +627,11 @@ UINT32 CFG80211OS_ChanNumGet(IN VOID *pCB, IN VOID *pWiphyOrg, IN UINT32 IdBand)
 	return 0;
 }
 
-NDIS_STATUS CFG80211_UpdateChFlagsByBeacon(IN VOID *pAdCB, UCHAR channel)
-{
-	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER) pAdCB;
-	struct wiphy *pWiphy = NULL;
-	int freq = 0;
-	struct ieee80211_channel *ch = NULL;
-	int idx = 0;
-	bool updated = false;
-	struct _CH_FLAGS_BEACON *flags_updated;
-	CFG80211_CB *cfg80211_cb = NULL;
-
-	RTMP_DRIVER_80211_CB_GET(pAd, &cfg80211_cb);
-	flags_updated = cfg80211_cb->ch_flags_by_beacon;
-	pWiphy = pAd->net_dev->ieee80211_ptr->wiphy;
-
-	if (pWiphy == NULL)
-		goto fail1;
-
-	if (channel > 14)
-		freq = ieee80211_channel_to_frequency(channel, IEEE80211_BAND_5GHZ);
-	else
-		freq = ieee80211_channel_to_frequency(channel, IEEE80211_BAND_2GHZ);
-
-	if (!freq)
-		goto fail3;
-
-	ch = ieee80211_get_channel(pWiphy, freq);
-
-	if (!ch)
-		goto fail5;
-
-	if (ch->flags & IEEE80211_CHAN_PASSIVE_SCAN) {
-		ch->flags &= ~IEEE80211_CHAN_PASSIVE_SCAN;
-		updated = true;
-	}
-
-	if  (ch->flags & IEEE80211_CHAN_RADAR) {
-		ch->flags &= ~IEEE80211_CHAN_RADAR;
-		updated = true;
-	}
-
-	for (idx = 0; idx < pAd->ChannelListNum; idx++) {
-		if (pAd->ChannelList[idx].Channel == channel)
-			break;
-	}
-
-	if (idx != pAd->ChannelListNum) {
-		if (!(ch->flags & IEEE80211_CHAN_RADAR) &&
-			pAd->ChannelList[idx].DfsReq)
-			pAd->ChannelList[idx].DfsReq = FALSE;
-		pAd->ChannelList[idx].Flags = (ch->flags & 0x3f);
-		if (!(ch->flags & IEEE80211_CHAN_NO_HT40MINUS)
-			|| !(ch->flags & IEEE80211_CHAN_NO_HT40PLUS))
-				pAd->ChannelList[idx].Flags |= CHANNEL_40M_CAP;
-		if (!(ch->flags & IEEE80211_CHAN_NO_80MHZ))
-				pAd->ChannelList[idx].Flags |= CHANNEL_80M_CAP;
-		pAd->ChannelList[idx].regFlags = ch->flags;
-	}
-
-	for (idx = 0; idx < sizeof(Cfg80211_Chan); idx++) {
-		if (flags_updated[idx].ch == channel)
-			break;
-	}
-
-	if (idx != pAd->ChannelListNum) {
-		struct _CH_FLAGS_BEACON *info = &flags_updated[idx];
-		if (info->flags & IEEE80211_CHAN_PASSIVE_SCAN) {
-			CFG80211DBG(RT_DEBUG_TRACE, ("%s update PASSIVE_SCAN flags by beacon\n", __func__));
-			info->flags &= ~IEEE80211_CHAN_PASSIVE_SCAN;
-		}
-		if  (info->flags & IEEE80211_CHAN_RADAR) {
-			CFG80211DBG(RT_DEBUG_TRACE, ("%s update CHAN_RADAR flags by beacon\n", __func__));
-			info->flags &= ~IEEE80211_CHAN_RADAR;
-		}
-	} else
-		CFG80211DBG(RT_DEBUG_TRACE, ("%s not match channel for ch %u\n", __func__, channel));
-
-	if (!updated)
-		return NDIS_STATUS_SUCCESS;
-	pAd->flagsUpdated = TRUE;
-	return NDIS_STATUS_SUCCESS;
-fail1:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail1: wiphy NULL\n", __func__));
-fail3:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail3: 2.4g channel list NULL\n"
-		, __func__));
-fail5:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail5: channelist NULL\n"
-		, __func__));
-	return NDIS_STATUS_FAILURE;
-}
-
 BOOLEAN CFG80211OS_ChanInfoGet(IN VOID *pCB,
 			       IN VOID *pWiphyOrg,
 			       IN UINT32 IdBand,
 			       IN UINT32 IdChan,
-			       OUT UINT32 *pChanId, OUT UINT32 *pPower, OUT BOOLEAN *pFlgIsRadar, UINT32 *chFlags)
+			       OUT UINT32 *pChanId, OUT UINT32 *pPower, OUT BOOLEAN *pFlgIsRadar)
 {
 	CFG80211_CB *pCfg80211_CB = (CFG80211_CB *) pCB;
 	struct wiphy *pWiphy = (struct wiphy *)pWiphyOrg;
@@ -780,12 +655,8 @@ BOOLEAN CFG80211OS_ChanInfoGet(IN VOID *pCB,
 		CFG80211DBG(RT_DEBUG_ERROR, ("Chan %03d (frq %d):\t not allowed!\n",
 					     (*pChanId), pChan->center_freq));
 		return FALSE;
-	} else {
-		CFG80211DBG(RT_DEBUG_TRACE, ("Chan %03d (frq %d):\t allowed, flags:%x\n",
-					     (*pChanId), pChan->center_freq, pChan->flags));
 	}
 
-	*chFlags = pChan->flags;
 	*pPower = pChan->max_power;
 
 	if (pChan->flags & IEEE80211_CHAN_RADAR)
@@ -936,27 +807,11 @@ Return Value:
 Note:
 ========================================================================
 */
-/* get RALINK pAd control block in 80211 Ops */
-#define MAC80211_PAD_GET(__pAd, __pWiphy)                      \
-	{                                                          \
-		ULONG *__pPriv;                                        \
-		__pPriv = (ULONG *)(wiphy_priv(__pWiphy));             \
-		__pAd = (VOID *)(*__pPriv);                            \
-		if (__pAd == NULL)                                     \
-			DBGPRINT(RT_DEBUG_ERROR,                           \
-					("80211> %s but pAd = NULL!", __func__));  \
-	}
-
 VOID CFG80211OS_ScanEnd(IN VOID *pCB, IN BOOLEAN FlgIsAborted)
 {
 #ifdef CONFIG_STA_SUPPORT
 	CFG80211_CB *pCfg80211_CB = (CFG80211_CB *) pCB;
-	PRTMP_ADAPTER pAd;
-
 	NdisAcquireSpinLock(&pCfg80211_CB->scan_notify_lock);
-
-	MAC80211_PAD_GET(pAd, pCfg80211_CB->pCfg80211_Wdev->wiphy);
-
 	if (pCfg80211_CB->pCfg80211_ScanReq) {
 		CFG80211DBG(RT_DEBUG_TRACE, ("80211> cfg80211_scan_done\n"));
 		cfg80211_scan_done(pCfg80211_CB->pCfg80211_ScanReq, FlgIsAborted);
@@ -964,9 +819,6 @@ VOID CFG80211OS_ScanEnd(IN VOID *pCB, IN BOOLEAN FlgIsAborted)
 	} else {
 		CFG80211DBG(RT_DEBUG_ERROR, ("80211> cfg80211_scan_done ==> NULL\n"));
 	}
-
-	pAd->cfg80211_ctrl.FlgCfg80211Scanning = FALSE;
-
 	NdisReleaseSpinLock(&pCfg80211_CB->scan_notify_lock);
 #endif /* CONFIG_STA_SUPPORT */
 }
@@ -1151,6 +1003,8 @@ VOID CFG80211OS_ForceUpdateChanFlags(IN VOID *pCB,
 			break;
 		if ((pChannels->center_freq >= (UINT16) freq_start_mhz) &&
 		    (pChannels->center_freq <= (UINT16) freq_end_mhz)) {
+
+			pChannels->flags &= ~IEEE80211_CHAN_DISABLED;
 
 			if (!(flags & NL80211_RRF_PASSIVE_SCAN))
 				pChannels->flags &= ~IEEE80211_CHAN_PASSIVE_SCAN;

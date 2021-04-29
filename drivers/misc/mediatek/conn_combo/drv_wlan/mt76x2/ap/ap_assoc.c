@@ -1,14 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ****************************************************************************
 
     Module Name:
@@ -833,22 +835,10 @@ static VOID ap_cmm_peer_assoc_req_action(IN PRTMP_ADAPTER pAd,
 	}
 #endif /* WSC_AP_SUPPORT */
 
-	/* for hidden SSID sake, SSID in AssociateRequest should be fully verified */
+		/* for hidden SSID sake, SSID in AssociateRequest should be fully verified */
 	if ((ie_list->SsidLen != pMbss->SsidLen) ||
-		(NdisEqualMemory(ie_list->Ssid, pMbss->Ssid, ie_list->SsidLen) == 0)) {
-		DBGPRINT(RT_DEBUG_TRACE,
-		("%s #%d ie_list->SsidLen %d, pMbss->SsidLen %d, ssid not match\n",
-		__func__, __LINE__, ie_list->SsidLen, pMbss->SsidLen));
-		if (ie_list->SsidLen)
-			DBGPRINT(RT_DEBUG_TRACE,
-			("%s ie_list->Ssid %s\n", __func__, ie_list->Ssid));
-		if (pMbss->SsidLen)
-			DBGPRINT(RT_DEBUG_TRACE,
-			("%s pMbss->Ssid %s\n", __func__, pMbss->Ssid));
-		/* disable ssid check for GO associate
-		*	goto LabelOK;
-		*/
-	}
+		    (NdisEqualMemory(ie_list->Ssid, pMbss->Ssid, ie_list->SsidLen) == 0))
+		goto LabelOK;
 
 #ifdef WSC_V2_SUPPORT
 	/* Do not check ACL when WPS V2 is enabled and ACL policy is positive. */
@@ -1029,28 +1019,6 @@ SendAssocResponse:
 			  1, &SupRateIe,
 			  1, &SupRateLen, SupRateLen, pAd->CommonCfg.SupRate, END_OF_ARGS);
 
-#ifdef RT_CFG80211_SUPPORT
-	if (StatusCode == MLME_SUCCESS) {
-#ifdef RT_CFG80211_P2P_CONCURRENT_DEVICE
-		pNetDev =
-			RTMP_CFG80211_FindVifEntry_ByType(pAd, RT_CMD_80211_IFTYPE_P2P_GO);
-		if ((pAd->cfg80211_ctrl.Cfg80211VifDevSet.vifDevList.size > 0) &&
-			(pNetDev !=	NULL)) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				("CONCURRENT_DEVICE CFG : GO NOITFY THE CLIENT ASSOCIATED\n"));
-			CFG80211OS_NewSta(pNetDev, ie_list->Addr2, (PUCHAR)Elem->Msg,
-				Elem->MsgLen);
-		} else
-#endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */
-		{
-			DBGPRINT(RT_DEBUG_TRACE,
-				("SINGLE_DEVICE CFG : GO NOITFY THE CLIENT ASSOCIATED\n"));
-			CFG80211OS_NewSta(pAd->net_dev, ie_list->Addr2, (PUCHAR)Elem->Msg,
-				Elem->MsgLen);
-		}
-	}
-#endif
-
 	if ((pAd->CommonCfg.ExtRateLen) && (PhyMode != WMODE_B) && (FlgIs11bSta == 0)) {
 		ULONG TmpLen;
 		MakeOutgoingFrame(pOutBuffer + FrameLen, &TmpLen,
@@ -1102,18 +1070,13 @@ SendAssocResponse:
 		ULONG TmpLen;
 		UCHAR HtLen1 = sizeof(pAd->CommonCfg.AddHTInfo);
 		HT_CAPABILITY_IE HtCapabilityRsp;
-		ADD_HT_INFO_IE addHTInfoTmp;
 #ifdef RT_BIG_ENDIAN
 		HT_CAPABILITY_IE HtCapabilityTmp;
+		ADD_HT_INFO_IE addHTInfoTmp;
 #endif /* endif */
 
 		NdisMoveMemory(&HtCapabilityRsp, &pAd->CommonCfg.HtCapability, ie_list->ht_cap_len);
-		NdisMoveMemory(&addHTInfoTmp, &pAd->CommonCfg.AddHTInfo, HtLen1);
-		HtCapabilityRsp.HtCapInfo.ChannelWidth = pAd->CommonCfg.preserve_bw;
-		if (!HtCapabilityRsp.HtCapInfo.ChannelWidth) {
-			addHTInfoTmp.AddHtInfo.ExtChanOffset = 0;
-			addHTInfoTmp.AddHtInfo.RecomWidth = 0;
-		}
+
 		/* add HT Capability IE */
 #ifndef RT_BIG_ENDIAN
 		MakeOutgoingFrame(pOutBuffer + FrameLen, &TmpLen,
@@ -1121,7 +1084,7 @@ SendAssocResponse:
 				  1, &ie_list->ht_cap_len,
 				  ie_list->ht_cap_len, &HtCapabilityRsp,
 				  1, &AddHtInfoIe,
-				  1, &HtLen1, HtLen1, &addHTInfoTmp, END_OF_ARGS);
+				  1, &HtLen1, HtLen1, &pAd->CommonCfg.AddHTInfo, END_OF_ARGS);
 #else
 		NdisMoveMemory(&HtCapabilityTmp, &HtCapabilityRsp, ie_list->ht_cap_len);
 		*(USHORT *) (&HtCapabilityTmp.HtCapInfo) =
@@ -1391,14 +1354,22 @@ SendAssocResponse:
 			hex_dump("ASSOC_REQ", Elem->Msg, Elem->MsgLen);
 
 #ifdef RT_CFG80211_P2P_CONCURRENT_DEVICE
-			pNetDev = RTMP_CFG80211_FindVifEntry_ByType(pAd,
-								RT_CMD_80211_IFTYPE_P2P_GO);
 			if ((pAd->cfg80211_ctrl.Cfg80211VifDevSet.vifDevList.size > 0) &&
-			    (pNetDev != NULL))
-				DBGPRINT(RT_DEBUG_TRACE, ("Don't do the following for P2P GO!\n"));
-			else
+			    ((pNetDev =
+			      RTMP_CFG80211_FindVifEntry_ByType(pAd,
+								RT_CMD_80211_IFTYPE_P2P_GO)) !=
+			     NULL)) {
+				DBGPRINT(RT_DEBUG_TRACE,
+					 ("CONCURRENT_DEVICE CFG : GO NOITFY THE CLIENT ASSOCIATED\n"));
+				CFG80211OS_NewSta(pNetDev, ie_list->Addr2, (PUCHAR) Elem->Msg,
+						  Elem->MsgLen);
+			} else
 #endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */
 			{
+				DBGPRINT(RT_DEBUG_TRACE,
+					 ("SINGLE_DEVICE CFG : GO NOITFY THE CLIENT ASSOCIATED\n"));
+				CFG80211OS_NewSta(pAd->net_dev, ie_list->Addr2, (PUCHAR) Elem->Msg,
+						  Elem->MsgLen);
 				if (pEntry->WepStatus == Ndis802_11WEPEnabled) {
 					/* Set WEP key to ASIC */
 					UCHAR KeyIdx = 0;

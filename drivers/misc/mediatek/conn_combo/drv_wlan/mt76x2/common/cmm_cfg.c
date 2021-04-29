@@ -1,14 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ****************************************************************************
 
     Module Name:
@@ -871,73 +873,11 @@ INT RTMP_COM_IoctlHandle(IN VOID * pAdSrc,
 		break;
 
 	case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_WOW_ENABLE:
-		pAd->WOW_Cfg.bWoWRunning = TRUE;
 		ASIC_WOW_ENABLE(pAd);
 		break;
 
 	case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_WOW_DISABLE:
-		pAd->WOW_Cfg.bWoWRunning = FALSE;
 		ASIC_WOW_DISABLE(pAd);
-		break;
-
-	case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_WOW_RUNSTATUS:
-		*(UCHAR *)pData = (UCHAR)pAd->WOW_Cfg.bWoWRunning;
-		break;
-
-	case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_INFRA_STATUS:
-		*(UCHAR *)pData = (UCHAR)INFRA_ON(pAd);
-		break;
-
-	case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_CMD_RADIO_OFF:
-		/* Link down first if any association exists*/
-		if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST)) {
-			if (INFRA_ON(pAd) || ADHOC_ON(pAd)) {
-				MLME_DISASSOC_REQ_STRUCT DisReq;
-				MLME_QUEUE_ELEM *pMsgElem;
-				os_alloc_mem(NULL, (UCHAR **)&pMsgElem, sizeof(MLME_QUEUE_ELEM));
-				if (pMsgElem) {
-					COPY_MAC_ADDR(&DisReq.Addr, pAd->CommonCfg.Bssid);
-					DisReq.Reason =  REASON_DISASSOC_STA_LEAVING;
-
-					pMsgElem->Machine = ASSOC_STATE_MACHINE;
-					pMsgElem->MsgType = MT2_MLME_DISASSOC_REQ;
-					pMsgElem->MsgLen = sizeof(MLME_DISASSOC_REQ_STRUCT);
-					NdisMoveMemory(pMsgElem->Msg, &DisReq,
-						       sizeof(MLME_DISASSOC_REQ_STRUCT));
-
-					MlmeDisassocReqAction(pAd, pMsgElem);
-					os_free_mem(NULL, pMsgElem);
-
-					RtmpusecDelay(1000);
-				}
-			}
-		}
-
-		if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) {
-			if (pAd->Mlme.CntlMachine.CurrState != CNTL_IDLE) {
-				RTMP_MLME_RESET_STATE_MACHINE(pAd);
-				DBGPRINT(RT_DEBUG_TRACE,
-				("!!! MLME busy, reset MLME state machine !!!\n"));
-			}
-		}
-
-		ASIC_RADIO_OFF(pAd, MLME_RADIO_OFF);
-		pAd->ExtraInfo = SW_RADIO_OFF;
-		MacTableReset(pAd);
-		pAd->StaCfg.SavedPMKNum = 0;
-		RTMPZeroMemory(pAd->StaCfg.SavedPMK, (PMKID_NO * sizeof(BSSID_INFO)));
-		#ifndef ANDROID_SUPPORT
-		/* because abdroid will get scan table when interface down
-		, so we not clean scan table */
-		BssTableInit(&pAd->ScanTab);
-		#endif /* ANDROID_SUPPORT */
-		break;
-
-	case CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_CMD_RADIO_ON:
-		ASIC_RADIO_ON(pAd, MLME_RADIO_ON);
-		pAd->ExtraInfo = EXTRA_INFO_CLEAR;
-		BssTableInit(&pAd->ScanTab);
-		RTUSBBulkReceive(pAd);
 		break;
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
 #endif /* CONFIG_PM */
@@ -1130,8 +1070,7 @@ INT RTMP_COM_IoctlHandle(IN VOID * pAdSrc,
 #ifdef RT_CFG80211_SUPPORT
 	case CMD_RTPRIV_IOCTL_CFG80211_CFG_START:
 		RT_CFG80211_REINIT(pAd);
-		CFG80211_SyncCore_ChList(pAd, NULL);
-		pAd->applyUpperLayerReg = TRUE;
+		RT_CFG80211_CRDA_REG_RULE_APPLY(pAd);
 		break;
 #endif /* RT_CFG80211_SUPPORT */
 

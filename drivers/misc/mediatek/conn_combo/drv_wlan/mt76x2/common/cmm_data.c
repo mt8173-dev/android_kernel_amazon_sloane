@@ -1,14 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ****************************************************************************
 
     Module Name:
@@ -347,9 +349,6 @@ NDIS_STATUS MiniportMMRequest(IN RTMP_ADAPTER *pAd,
 #ifdef RT_CFG80211_P2P_SUPPORT
 		    || IS_CFG80211_P2P_ABSENCE(pAd)
 #endif /* RT_CFG80211_P2P_SUPPORT */
-#ifdef ED_SUPPORT
-		    || pAd->ed_tx_stoped
-#endif
 		    ) {
 			Status = NDIS_STATUS_FAILURE;
 			break;
@@ -877,11 +876,6 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(IN RTMP_ADAPTER *pAd,
 			{
 				bAckRequired = TRUE;
 				pHeader_802_11->Duration = RTMPCalcDuration(pAd, MlmeRate, 14);
-				/* GO Case: OFDM Mgmt frame duration set to 60us for IOT */
-				if ((pAd->CommonCfg.MlmeTransmit.field.MODE == MODE_OFDM) &&
-					(pHeader_802_11->FC.Type == FC_TYPE_MGMT)) {
-					pHeader_802_11->Duration = 60;
-				}
 				if ((pHeader_802_11->FC.SubType == SUBTYPE_PROBE_RSP)
 				    && (pHeader_802_11->FC.Type == FC_TYPE_MGMT)) {
 					bInsertTimestamp = TRUE;
@@ -1269,10 +1263,6 @@ BOOLEAN RTMP_FillTxBlkInfo(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 		{
 #ifdef MCAST_RATE_SPECIFIC
 			PUCHAR pDA = GET_OS_PKT_DATAPTR(pPacket);
-			/*
-			if (((*pDA & 0x01) == 0x01) && (*pDA != 0xff) &&
-			(pNetDev && (RT_CFG80211_GET_IF_TYPE(pNetDev) == RT_CMD_80211_IFTYPE_P2P_GO))) {
-			*/
 			if (((*pDA & 0x01) == 0x01) && (*pDA != 0xff))
 				pTxBlk->pTransmit = &pAd->CommonCfg.MCastPhyMode;
 			else
@@ -1288,11 +1278,6 @@ BOOLEAN RTMP_FillTxBlkInfo(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 		}
 	} else {
 		pTxBlk->pMacEntry = &pAd->MacTab.Content[pTxBlk->Wcid];
-#ifdef MCAST_RATE_SPECIFIC
-		if (pAd->CommonCfg.bApplyMCRateToUC)
-			pTxBlk->pTransmit = &pAd->CommonCfg.MCastPhyMode;
-		else
-#endif
 		pTxBlk->pTransmit = &pTxBlk->pMacEntry->HTPhyMode;
 
 		pMacEntry = pTxBlk->pMacEntry;
@@ -2615,15 +2600,6 @@ BOOLEAN RTMPCheckEtherType(IN RTMP_ADAPTER *pAd,
 		break;
 #endif /* defined(DOT11Z_TDLS_SUPPORT) || defined(CFG_TDLS_SUPPORT) */
 
-	/* Ozmo Devices https://standards.ieee.org/develop/regauth/ethertype/eth.txt */
-	case 0x892E:
-		{
-			UINT32 priority = GET_OS_PKT_PRIORITY(pPacket);
-			if (priority >= 256 && priority <= 263)
-				up = priority - 256;
-			DBGPRINT(RT_DEBUG_INFO, ("%s:OZMO: priorty:%d\n", __func__, up));
-		}
-		break;
 	default:
 		break;
 	}
@@ -2772,11 +2748,6 @@ VOID Indicate_Legacy_Packet(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk, UCHAR FromWhichBS
 		hex_dump("802_11_hdr", (UCHAR *) pRxBlk->pHeader, LENGTH_802_11);
 	}
 /* ---Add by shiang for debug */
-	if (check_rx_pkt_pn_allowed(pAd, pRxBlk) == FALSE) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s:drop packet by PN mismatch!\n", __func__));
-		RELEASE_NDIS_PACKET(pAd, pRxPacket, NDIS_STATUS_FAILURE);
-		return;
-	}
 
 	/*
 	   1. get 802.3 Header
@@ -3773,39 +3744,6 @@ VOID Enable_Tx2Q(RTMP_ADAPTER *pAd)
 	DBGPRINT(RT_DEBUG_TRACE, ("Enable_Tx2Q mac 404  value %x\n", Value));
 }
 
-VOID Disable_netifQ(RTMP_ADAPTER *pAd)
-{
-	PNET_DEV pNetDev = RTMP_CFG80211_FindVifEntry_ByType(pAd,
-					RT_CMD_80211_IFTYPE_P2P_GO);
-	if (pNetDev) {
-		DBGPRINT(RT_DEBUG_TRACE, ("Disable netif queue %s\n", pNetDev->name));
-		/*disable GO kernel queue*/
-		RTMP_OS_NETDEV_STOP_QUEUE(pNetDev);
-	}
-
-	DBGPRINT(RT_DEBUG_TRACE, ("Disable netif queue %s\n", pAd->net_dev->name));
-	/*disable wlan0 kernel queue*/
-	if (INFRA_ON(pAd))
-		RTMP_OS_NETDEV_STOP_QUEUE(pAd->net_dev);
-
-}
-
-
-VOID Enable_netifQ(RTMP_ADAPTER *pAd)
-{
-	PNET_DEV pNetDev = RTMP_CFG80211_FindVifEntry_ByType(pAd,
-					RT_CMD_80211_IFTYPE_P2P_GO);
-	if (pNetDev) {
-		DBGPRINT(RT_DEBUG_TRACE, ("Enable netif queue %s\n", pNetDev->name));
-		/*enable GO kernel queue*/
-		RTMP_OS_NETDEV_WAKE_QUEUE(pNetDev);
-	}
-
-	DBGPRINT(RT_DEBUG_TRACE, ("Enable netif queue %s\n", pAd->net_dev->name));
-	/*enable wlan0 kernel queue*/
-	RTMP_OS_NETDEV_WAKE_QUEUE(pAd->net_dev);
-}
-
 /* TODO: shiang-usw, modify the op_mode assignment for this function!!! */
 VOID dev_rx_mgmt_frm(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 {
@@ -4733,64 +4671,3 @@ VOID drop_mask_timer_action(IN PVOID SystemSpecific1,
 
 }
 #endif /* DROP_MASK_SUPPORT */
-
-/* Compare CCMP PN value and return whether the pkt in rxblk is allowed.
- *
- * @pRxBlk: the rxblk to be checked
- */
-BOOLEAN check_rx_pkt_pn_allowed(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
-{
-	MAC_TABLE_ENTRY *pEntry;
-
-	if (likely(!pRxBlk->ccmp_pn_valid)) {
-		DBGPRINT(RT_DEBUG_TRACE, ("no CCMP PN, bypass\n"));
-		return TRUE; /* ccmp_pn not calculated (UC or non-ccmp BMC) */
-	}
-
-	if (unlikely(pRxBlk->wcid >= MAX_LEN_OF_MAC_TABLE)) {
-		DBGPRINT(RT_DEBUG_TRACE, ("invalid pRxBlk->wcid %u, bypass\n",
-			pRxBlk->wcid));
-		return TRUE;
-	}
-
-	pEntry = &pAd->MacTab.Content[pRxBlk->wcid];
-	if (!pEntry->wdev) {
-		DBGPRINT(RT_DEBUG_TRACE, ("null w %u pEntry->wdev, bypass\n",
-			pRxBlk->wcid));
-		return TRUE;
-	}
-
-	if (pRxBlk->pRxInfo->Mcast || pRxBlk->pRxInfo->Bcast) {
-		UCHAR kid = pRxBlk->key_idx;
-
-		if (unlikely(kid >= ARRAY_SIZE(pEntry->rx_ccmp_pn_bmc))) {
-			DBGPRINT(RT_DEBUG_TRACE, ("invalid key id %u\n", kid));
-			return TRUE;
-		}
-
-		if (likely(pRxBlk->ccmp_pn > pEntry->rx_ccmp_pn_bmc[kid])) {
-			/* PN-0 is NOT allowed from now on */
-			pEntry->rx_ccmp_pn_bmc_zero[kid] = FALSE;
-			pEntry->rx_ccmp_pn_bmc[kid] = pRxBlk->ccmp_pn;
-			DBGPRINT(RT_DEBUG_TRACE, ("update rx bmc[%u] PN %llu\n",
-				 kid, pRxBlk->ccmp_pn));
-			return TRUE;
-		}
-		/* Some APs initialize PN to 0, allow it only if first rx pkt */
-		if (unlikely(pRxBlk->ccmp_pn == 0)) {
-			if (pEntry->rx_ccmp_pn_bmc_zero[kid]) {
-				pEntry->rx_ccmp_pn_bmc_zero[kid] = FALSE;
-				return TRUE;
-			}
-		}
-
-		DBGPRINT(RT_DEBUG_ERROR, ("drop rx bmc[%u] %llu, exp > %llu\n",
-			 kid, pRxBlk->ccmp_pn,
-			 pEntry->rx_ccmp_pn_bmc[kid]));
-		return FALSE;
-	}
-
-	/* skip unicast check now */
-	return TRUE;
-}
-

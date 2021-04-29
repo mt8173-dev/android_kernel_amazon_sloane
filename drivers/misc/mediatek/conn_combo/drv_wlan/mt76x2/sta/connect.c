@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology	5th	Rd.
+ * Science-based Industrial	Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work	and	the
+ * use of a	copyright notice does not imply	otherwise. This	source code
+ * contains	confidential trade secret material of Ralink Tech. Any attemp
+ * or participation	in deciphering,	decoding, reverse engineering or in	any
+ * way altering	the	source code	is stricitly prohibited, unless	the	prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -223,6 +226,16 @@ VOID MlmeCntlMachinePerformAction(IN PRTMP_ADAPTER pAd,
 			}
 #endif /* IWSC_SUPPORT */
 		}
+#ifdef ED_MONITOR
+		if (pAd->ed_chk) {
+			if (pAd->ScanTab.BssNr > pAd->ed_ap_scaned) {
+				DBGPRINT(RT_DEBUG_ERROR,
+					 ("@@@ %s : pAd->ScanTab.BssNr =%u, pAd->ed_ap_scaned=%u, go to ed_monitor_exit()!!\n",
+					  __func__, pAd->ScanTab.BssNr, pAd->ed_ap_scaned));
+				ed_monitor_exit(pAd);
+			}
+		}
+#endif /* ED_MONITOR */
 		break;
 
 	case CNTL_WAIT_OID_DISASSOC:
@@ -656,30 +669,26 @@ VOID CntlOidSsidProc(IN PRTMP_ADAPTER pAd, IN MLME_QUEUE_ELEM * Elem)
 			{
 				ULONG idx = 0;
 				BOOLEAN BSSIDScanning = FALSE;
-				idx = BssTableSearchByBSSID(&pAd->MlmeAux.SsidBssTab,
-					pAd->cfg80211_ctrl.Cfg80211_ConnReqBssid);
 				pAd->cfg80211_ctrl.Cfg80211FreqScanning = FALSE;
 				if (pAd->cfg80211_ctrl.FlgCfg80211Connecting
 					&& pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex) {
 					DBGPRINT(RT_DEBUG_TRACE,
-						("%s:CFG80211 connect ask to do frequency scan at channel %d\n",
-						__func__, pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex));
-					if (idx != BSS_NOT_FOUND && pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex
-							== pAd->MlmeAux.SsidBssTab.BssEntry[idx].Channel) {
-							DBGPRINT(RT_DEBUG_TRACE,
-							("%s:Already conneting to the channel, ignore request\n",
-							__func__));
-						}
+					("%s:CFG80211 connect ask to do frequency scan at channel %d\n",
+					 __func__, pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex));
+					if (pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex
+					    == pAd->MlmeAux.SsidBssTab.BssEntry[idx].Channel)
+						DBGPRINT(RT_DEBUG_TRACE,
+						("%s:Already conneting to the channel, ignore request\n",
+						 __func__));
 					else
 						pAd->cfg80211_ctrl.Cfg80211FreqScanning = TRUE;
 				}
-				if (idx != BSS_NOT_FOUND) {
-					pAd->cfg80211_ctrl.Cfg80211FreqScanning =
-						pAd->cfg80211_ctrl.FlgCfg80211Connecting
-						&& pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex
-						&& (pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex
-						!= pAd->MlmeAux.SsidBssTab.BssEntry[idx].Channel);
-				}
+
+				pAd->cfg80211_ctrl.Cfg80211FreqScanning = pAd->cfg80211_ctrl.FlgCfg80211Connecting
+					&& pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex
+					&& (pAd->cfg80211_ctrl.Cfg80211ConnectChanIndex
+					    != pAd->MlmeAux.SsidBssTab.BssEntry[idx].Channel);
+
 				/* We should try the requested BSSID and/or frequency first if assigned */
 				if (!MAC_ADDR_EQUAL
 					(pAd->cfg80211_ctrl.Cfg80211_ConnReqBssid, ZERO_MAC_ADDR)) {
@@ -1299,12 +1308,14 @@ VOID CntlWaitJoinProc(IN PRTMP_ADAPTER pAd, IN MLME_QUEUE_ELEM * Elem)
 			else {
 				{
 					/* either Ndis802_11AuthModeShared or Ndis802_11AuthModeAutoSwitch, try shared key first */
-					if (pAd->StaCfg.wdev.AuthMode == Ndis802_11AuthModeShared) {
+					if ((pAd->StaCfg.wdev.AuthMode == Ndis802_11AuthModeShared)
+					    || (pAd->StaCfg.wdev.AuthMode ==
+						Ndis802_11AuthModeAutoSwitch)) {
 						AuthParmFill(pAd, &AuthReq, pAd->MlmeAux.Bssid,
-								AUTH_MODE_KEY);
+							     AUTH_MODE_KEY);
 					} else {
 						AuthParmFill(pAd, &AuthReq,
-								pAd->MlmeAux.Bssid, AUTH_MODE_OPEN);
+							     pAd->MlmeAux.Bssid, AUTH_MODE_OPEN);
 					}
 					MlmeEnqueue(pAd, AUTH_STATE_MACHINE,
 						    MT2_MLME_AUTH_REQ,
@@ -1506,9 +1517,9 @@ VOID CntlWaitAuthProc2(IN PRTMP_ADAPTER pAd, IN MLME_QUEUE_ELEM * Elem)
 				if ((pAd->StaCfg.wdev.AuthMode == Ndis802_11AuthModeAutoSwitch)
 				    && (pAd->MlmeAux.Alg == Ndis802_11AuthModeShared)) {
 				DBGPRINT(RT_DEBUG_TRACE,
-					 ("CNTL - AUTH FAIL, try Shared system...\n"));
+					 ("CNTL - AUTH FAIL, try OPEN system...\n"));
 				AuthParmFill(pAd, &AuthReq, pAd->MlmeAux.Bssid,
-					     AUTH_MODE_KEY);
+					     Ndis802_11AuthModeOpen);
 				MlmeEnqueue(pAd, AUTH_STATE_MACHINE,
 					    MT2_MLME_AUTH_REQ,
 					    sizeof(MLME_AUTH_REQ_STRUCT), &AuthReq, 0);
@@ -1730,8 +1741,6 @@ VOID LinkUp(RTMP_ADAPTER *pAd, UCHAR BssType)
 
 	/* Init ChannelQuality to prevent DEAD_CQI at initial LinkUp */
 	pAd->Mlme.ChannelQuality = 50;
-	NdisGetSystemUpTime(&Now);
-	pAd->StaCfg.LastBeaconRxTime = Now;	/* last RX timestamp */
 
 	/* init to not doing improved scan */
 	pAd->StaCfg.bImprovedScan = FALSE;
@@ -1806,8 +1815,8 @@ VOID LinkUp(RTMP_ADAPTER *pAd, UCHAR BssType)
 		 ("!!!%s LINK UP !!!\n", (BssType == BSS_ADHOC ? "ADHOC" : "Infra")));
 
 	DBGPRINT(RT_DEBUG_OFF,
-		 ("!!! LINK UP !!! (BssType=%d, AID=%d, Channel=%d, CentralChannel = %d)\n",
-		  BssType, pAd->StaActive.Aid,
+		 ("!!! LINK UP !!! (BssType=%d, AID=%d, ssid=%s, Channel=%d, CentralChannel = %d)\n",
+		  BssType, pAd->StaActive.Aid, pAd->CommonCfg.Ssid,
 		  pAd->CommonCfg.Channel, pAd->CommonCfg.CentralChannel));
 
 	pEntry->Aid = pAd->StaActive.Aid;
@@ -1842,9 +1851,6 @@ VOID LinkUp(RTMP_ADAPTER *pAd, UCHAR BssType)
 	   PeerBeaconAtJoinAction wouldn't be invoked in roaming case.
 	 */
 		AsicSetBssid(pAd, pAd->CommonCfg.Bssid);
-#ifdef STA_P2P_CONNCURRENT
-		AsicSetApCliBssid(pAd, pAd->CommonCfg.Bssid, APCLI_BSSID_IDX);
-#endif
 
 #ifdef STREAM_MODE_SUPPORT
 	/*  Enable stream mode for BSSID MAC Address */
@@ -1873,6 +1879,9 @@ VOID LinkUp(RTMP_ADAPTER *pAd, UCHAR BssType)
 					  pAd->MlmeAux.AddHtInfo.AddHtInfo2.OperaionMode,
 					  ALLN_SETPROTECT, FALSE, FALSE);
 	}
+
+	NdisGetSystemUpTime(&Now);
+	pAd->StaCfg.LastBeaconRxTime = Now;	/* last RX timestamp */
 
 	if ((pAd->CommonCfg.TxPreamble != Rt802_11PreambleLong) &&
 	    CAP_IS_SHORT_PREAMBLE_ON(pAd->StaActive.CapabilityInfo)) {
@@ -2134,10 +2143,6 @@ VOID LinkUp(RTMP_ADAPTER *pAd, UCHAR BssType)
 					/* Set key material and cipherAlg to Asic */
 					AsicAddSharedKeyEntry(pAd, BSS0, idx,
 							      &pAd->SharedKey[BSS0][idx]);
-#ifdef STA_P2P_CONNCURRENT
-					AsicAddSharedKeyEntry(pAd, BSS0 + APCLI_BSSID_IDX, idx,
-								&pAd->SharedKey[BSS0][idx]);
-#endif
 
 					if (idx == wdev->DefaultKeyId) {
 						/* STA doesn't need to set WCID attribute for group key */
@@ -2844,11 +2849,10 @@ VOID LinkDown(IN PRTMP_ADAPTER pAd, IN BOOLEAN IsReqFromAP)
 #endif /* WAPI_SUPPORT */
 
 	for (i = 1; i < MAX_LEN_OF_MAC_TABLE; i++) {
-		if (IS_ENTRY_CLIENT(&pAd->MacTab.Content[i]) &&
-			BSSID_WCID == pAd->MacTab.Content[i].wcid) {
+		if (IS_ENTRY_CLIENT(&pAd->MacTab.Content[i])
+		    )
 			MacTableDeleteEntry(pAd, pAd->MacTab.Content[i].wcid,
-				pAd->MacTab.Content[i].Addr);
-		}
+					    pAd->MacTab.Content[i].Addr);
 	}
 
 	AsicSetSlotTime(pAd, TRUE);	/*FALSE); */
@@ -2865,7 +2869,6 @@ VOID LinkDown(IN PRTMP_ADAPTER pAd, IN BOOLEAN IsReqFromAP)
 	RTMPSetSignalLED(pAd, -100);	/* Force signal strength Led to be turned off, firmware is not done it. */
 #endif /* LED_CONTROL_SUPPORT */
 
-	if (!RTMP_CFG80211_VIF_P2P_GO_ON(pAd))
 		AsicDisableSync(pAd);
 
 	pAd->Mlme.PeriodicRound = 0;
@@ -2951,19 +2954,11 @@ VOID LinkDown(IN PRTMP_ADAPTER pAd, IN BOOLEAN IsReqFromAP)
 	pAd->CommonCfg.MlmeRate = pAd->CommonCfg.BasicMlmeRate;
 	pAd->CommonCfg.RtsRate = pAd->CommonCfg.BasicMlmeRate;
 
-	/* Restore to default BW */
-	pAd->CommonCfg.RegTransmitSetting.field.BW = pAd->CommonCfg.default_bw;
-#ifdef CONFIG_AP_SUPPORT
-	if (RTMP_CFG80211_VIF_P2P_GO_ON(pAd)) {
-		pAd->CommonCfg.RegTransmitSetting.field.BW = pAd->CommonCfg.preserve_bw;
-		/* SetCommonHT(pAd); */
-	}
-#endif /* CONFIG_AP_SUPPORT */
-
 	/* TODO: shiang-6590, why we need to fallback to BW_20 here? How about the BW_10? */
 	if (pAd->CommonCfg.BBPCurrentBW != BW_20) {
-			/* donot fall back to BW20  */
-			/* bbp_set_bw(pAd, BW_20); */
+		{
+			bbp_set_bw(pAd, BW_20);
+		}
 	}
 	{
 		/* Reset DAC */

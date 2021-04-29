@@ -1,15 +1,17 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -1019,25 +1021,15 @@ VOID PeerBeaconAtScanAction(IN PRTMP_ADAPTER pAd, IN MLME_QUEUE_ELEM *Elem)
 					Elem->Channel, ie_list, &LenVIE, pVIE)) {
 		ULONG Idx = 0;
 		CHAR Rssi = 0;
-		if ((pFrame->Hdr.FC.SubType == SUBTYPE_BEACON) && (Elem->Channel != ie_list->Channel)
-			&& (RTMP_GetPrimaryCh(pAd, Elem->Channel) != ie_list->Channel)) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				("%s, Rf CH[%d] ie CH[%d] %d, %s RSSI0 %d, RSSI1 %d, [%02x:%02x:%02x:%02x:%02x:%02x]\n",
-				__func__, Elem->Channel, ie_list->Channel, Rssi, ie_list->Ssid,
-				(CHAR)Elem->Rssi0, (CHAR)Elem->Rssi1, PRINT_MAC(ie_list->Bssid)));
-			goto LabelOK;
-		}
+
 		Idx = BssTableSearch(&pAd->ScanTab, &ie_list->Bssid[0], ie_list->Channel);
 		if (Idx != BSS_NOT_FOUND && Idx < MAX_LEN_OF_BSS_TABLE) {
 			Rssi = pAd->ScanTab.BssEntry[Idx].Rssi;
 		}
-#ifdef RT_CFG80211_SUPPORT
-		CFG80211_UpdateChFlagsByBeacon(pAd, ie_list->Channel);
-#endif
-
 		Rssi = RTMPMaxRssi(pAd, ConvertToRssi(pAd, Elem->Rssi0, RSSI_0),
 				   ConvertToRssi(pAd, Elem->Rssi1, RSSI_1),
 				   ConvertToRssi(pAd, Elem->Rssi2, RSSI_2));
+
 
 		if ((ie_list->HtCapabilityLen > 0) || (ie_list->PreNHtCapabilityLen > 0))
 			ie_list->HtCapabilityLen = SIZE_HT_CAP_IE;
@@ -1167,9 +1159,8 @@ VOID PeerBeaconAtJoinAction(IN PRTMP_ADAPTER pAd, IN MLME_QUEUE_ELEM *Elem)
 		    WMODE_EQUAL(pAd->CommonCfg.PhyMode, WMODE_G) &&
 		    ((ie_list->SupRateLen + ie_list->ExtRateLen) < 12))
 			goto LabelOK;
-#ifdef RT_CFG80211_SUPPORT
-		CFG80211_UpdateChFlagsByBeacon(pAd, ie_list->Channel);
-#endif
+
+
 		/*
 		   BEACON from desired BSS/IBSS found. We should be able to decide most
 		   BSS parameters here.
@@ -1372,20 +1363,6 @@ VOID PeerBeaconAtJoinAction(IN PRTMP_ADAPTER pAd, IN MLME_QUEUE_ELEM *Elem)
 			if (((ie_list->HtCapabilityLen > 0) || (ie_list->PreNHtCapabilityLen > 0))
 			    && (wdev->DesiredHtPhyInfo.bHtEnable)
 			    && (WMODE_CAP_N(pAd->CommonCfg.PhyMode) && bAllowNrate)) {
-
-				if (CentralChannel <= 14) {
-					if (pAd->CommonCfg.RegTransmitSetting.field.BW != BW_20) {
-						pAd->CommonCfg.RegTransmitSetting.field.BW = BW_20;
-						SetCommonHT(pAd);
-						DBGPRINT(RT_DEBUG_TRACE, ("Force 2.4G HT20\n"));
-					}
-				} else if ((pAd->CommonCfg.RegTransmitSetting.field.BW == BW_20)
-					&& pAd->CommonCfg.default_bw != BW_20) {
-					pAd->CommonCfg.RegTransmitSetting.field.BW =
-						pAd->CommonCfg.default_bw;
-					SetCommonHT(pAd);
-				}
-
 				RTMPMoveMemory(&pAd->MlmeAux.AddHtInfo, &ie_list->AddHtInfo,
 					       SIZE_ADD_HT_INFO_IE);
 
@@ -1621,18 +1598,16 @@ VOID PeerBeacon(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 		BOOLEAN is_my_bssid, is_my_ssid;
 		ULONG Bssidx, Now;
 		BSS_ENTRY *pBss;
-
 		CHAR RealRssi = RTMPMaxRssi(pAd, ConvertToRssi(pAd, Elem->Rssi0, RSSI_0),
 					    ConvertToRssi(pAd, Elem->Rssi1, RSSI_1),
 					    ConvertToRssi(pAd, Elem->Rssi2, RSSI_2));
+
 		is_my_bssid =
 		    MAC_ADDR_EQUAL(bcn_ie_list->Bssid, pAd->CommonCfg.Bssid) ? TRUE : FALSE;
 		is_my_ssid =
 		    SSID_EQUAL(bcn_ie_list->Ssid, bcn_ie_list->SsidLen, pAd->CommonCfg.Ssid,
 			       pAd->CommonCfg.SsidLen) ? TRUE : FALSE;
-#ifdef RT_CFG80211_SUPPORT
-		CFG80211_UpdateChFlagsByBeacon(pAd, bcn_ie_list->Channel);
-#endif
+
 #if defined(RT_CFG80211_P2P_SUPPORT) && defined(SUPPORT_ACS_ALL_CHANNEL_RANK)
 		if (bcn_ie_list->AddHtInfoLen != 0)
 			bcn_ie_list->Channel = bcn_ie_list->AddHtInfo.ControlChan;
@@ -1742,6 +1717,35 @@ VOID PeerBeacon(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 
 
 		}
+#ifdef ED_MONITOR		/* move from upper case to here! */
+		if (pAd->ed_chk && INFRA_ON(pAd)) {
+			ULONG ap_count;
+			if ((ap_count =
+			     BssChannelAPCount(&pAd->ScanTab,
+					       pAd->CommonCfg.Channel)) > pAd->ed_current_ch_aps) {
+				DBGPRINT(RT_DEBUG_ERROR,
+					 ("@@@ %s : BssChannelAPCount=%lu, ed_current_ch_aps=%u, ",
+					  __func__, ap_count, pAd->ed_current_ch_aps));
+				DBGPRINT(RT_DEBUG_ERROR, ("go to ed_monitor_exit()!!\n"));
+				ed_monitor_exit(pAd);
+			} else {
+				if (is_my_bssid || is_my_ssid) {
+					/* DBGPRINT(RT_DEBUG_ERROR, ("@@@ 000 %s : RealRssi=%d, pAd->ed_rssi_threshold=%d\n", __FUNCTION__, RealRssi, pAd->ed_rssi_threshold)); */
+					if (RealRssi < pAd->ed_rssi_threshold) {
+						DBGPRINT(RT_DEBUG_ERROR,
+							 ("@@@ %s : RealRssi=%d, pAd->ed_rssi_threshold=%d,  go to ed_monitor_exit()!!\n",
+							  __func__, RealRssi,
+							  pAd->ed_rssi_threshold));
+						ed_monitor_exit(pAd);
+					}
+				}
+			}
+		}
+
+		if ((!is_my_ssid) && (!is_my_bssid)) {
+			goto LabelOK;
+		}
+#endif /* ED_MONITOR */
 
 		/*
 		   if the ssid matched & bssid unmatched, we should select the bssid with large value.

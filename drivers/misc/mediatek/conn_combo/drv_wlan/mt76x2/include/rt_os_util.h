@@ -623,8 +623,6 @@ typedef struct __CFG80211_BAND {
 	BOOLEAN FlgIsBMode;
 } CFG80211_BAND;
 
-VOID CFG80211OS_Free_ch_bcn_rate(IN VOID *pCB);
-
 VOID CFG80211OS_UnRegister(IN VOID *pCB, IN VOID *pNetDev);
 
 BOOLEAN CFG80211_SupBandInit(IN VOID *pCB,
@@ -642,14 +640,12 @@ BOOLEAN CFG80211OS_BandInfoGet(IN VOID *pCB,
 
 UINT32 CFG80211OS_ChanNumGet(IN VOID *pCB, IN VOID *pWiphyOrg, IN UINT32 IdBand);
 
-NDIS_STATUS CFG80211_UpdateChFlagsByBeacon(IN VOID *pAdCB, UCHAR channel);
-
 BOOLEAN CFG80211OS_ChanInfoGet(IN VOID *pCB,
 			       IN VOID *pWiphyOrg,
 			       IN UINT32 IdBand,
 			       IN UINT32 IdChan,
 			       OUT UINT32 *pChanId,
-			       OUT UINT32 *pPower, OUT BOOLEAN *pFlgIsRadar, UINT32 *chFlags);
+			       OUT UINT32 *pPower, OUT BOOLEAN *pFlgIsRadar);
 
 BOOLEAN CFG80211OS_ChanInfoInit(IN VOID *pCB,
 				IN UINT32 InfoIndex,

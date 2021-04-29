@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -239,6 +240,7 @@ INT CFG80211DRV_IoctlHandle(IN VOID * pAdSrc,
 				DBGPRINT(RT_DEBUG_ERROR,
 					 ("CFG_SCAN: close the scan cmd in device close phase\n"));
 				CFG80211OS_ScanEnd(pAd->pCfg80211_CB, TRUE);
+				pAd->cfg80211_ctrl.FlgCfg80211Scanning = FALSE;
 			}
 		}
 		break;
@@ -493,30 +495,22 @@ BOOLEAN CFG80211DRV_OpsSetChannel(RTMP_ADAPTER *pAd, VOID *pData)
 	IfType = pChan->IfType;
 	ChannelType = pChan->ChanType;
 
-	/* Preserve BW from supplicant */
-	if (ChannelType == RT_CMD_80211_CHANTYPE_HT20 ||
-	    ChannelType == RT_CMD_80211_CHANTYPE_NOHT)
-		pAd->CommonCfg.preserve_bw = BW_20;
-	else if (ChannelType == RT_CMD_80211_CHANTYPE_HT40MINUS ||
-		 ChannelType == RT_CMD_80211_CHANTYPE_HT40PLUS)
-		pAd->CommonCfg.preserve_bw = BW_40;
-
 	if (IfType != RT_CMD_80211_IFTYPE_MONITOR) {
 		/* get channel BW */
 		FlgIsChanged = TRUE;
 
 		/* Reset ChannelType based on Infra connection setting */
 		if (INFRA_ON(pAd) && (IfType == RT_CMD_80211_IFTYPE_P2P_GO)) {
-			if ((pAd->CommonCfg.RegTransmitSetting.field.BW != BW_20)
+			if ((pAd->CommonCfg.BBPCurrentBW != BW_20)
 			    && (ChannelType <= RT_CMD_80211_CHANTYPE_HT20)) {
 				ChannelType =
 				    pAd->CommonCfg.CentralChannel >
-				    ChanId ? RT_CMD_80211_CHANTYPE_HT40PLUS :
+				    pAd->CommonCfg.Channel ? RT_CMD_80211_CHANTYPE_HT40PLUS :
 				    RT_CMD_80211_CHANTYPE_HT40MINUS;
 				DBGPRINT(RT_DEBUG_ERROR, ("Infra@HT40, Force P2P GO@HT40\n"));
 			}
 
-			if ((pAd->CommonCfg.RegTransmitSetting.field.BW == BW_20)
+			if ((pAd->CommonCfg.BBPCurrentBW == BW_20)
 			    && (ChannelType >= RT_CMD_80211_CHANTYPE_HT40MINUS)) {
 				ChannelType = RT_CMD_80211_CHANTYPE_HT20;
 				DBGPRINT(RT_DEBUG_ERROR, ("Infra@HT20, Force P2P GO@HT20\n"));
@@ -623,35 +617,34 @@ BOOLEAN CFG80211DRV_OpsSetChannel(RTMP_ADAPTER *pAd, VOID *pData)
 		pAd->CommonCfg.RegTransmitSetting.field.BW = BW_40;
 	}
 
-	if (FlgIsChanged == TRUE) {
+	if (FlgIsChanged == TRUE)
 		SetCommonHT(pAd);
 
-		/* switch to the channel with Common Channel */
-		pAd->CommonCfg.Channel = ChanId;
-		pAd->MlmeAux.Channel = ChanId;
+	/* switch to the channel with Common Channel */
+	pAd->CommonCfg.Channel = ChanId;
+	pAd->MlmeAux.Channel = ChanId;
 
-		/* CFG_TODO: for CentralChannel setting */
-		/* lock_channel = N_SetCenCh(pAd, pAd->CommonCfg.Channel); */
-		/* pAd->MlmeAux.CentralChannel = lock_channel; */
+	/* CFG_TODO: for CentralChannel setting */
+	/* lock_channel = N_SetCenCh(pAd, pAd->CommonCfg.Channel); */
+	/* pAd->MlmeAux.CentralChannel = lock_channel; */
 
-		/* if (pAd->LatchRfRegs.Channel != pAd->CommonCfg.Channel) */
-		/* { */
-		/* AsicSwitchChannel(pAd, pAd->CommonCfg.Channel, FALSE); */
-		/* AsicLockChannel(pAd, pAd->CommonCfg.Channel); */
-		/* } */
+	/* if (pAd->LatchRfRegs.Channel != pAd->CommonCfg.Channel) */
+	/* { */
+	/* AsicSwitchChannel(pAd, pAd->CommonCfg.Channel, FALSE); */
+	/* AsicLockChannel(pAd, pAd->CommonCfg.Channel); */
+	/* } */
 
-		if (pAd->CommonCfg.RegTransmitSetting.field.EXTCHA == EXTCHA_BELOW)
-			pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel - 2;
-		else if (pAd->CommonCfg.RegTransmitSetting.field.EXTCHA == EXTCHA_ABOVE)
-			pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel + 2;
-		else
-			pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel;
+	if (pAd->CommonCfg.RegTransmitSetting.field.EXTCHA == EXTCHA_BELOW)
+		pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel - 2;
+	else if (pAd->CommonCfg.RegTransmitSetting.field.EXTCHA == EXTCHA_ABOVE)
+		pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel + 2;
+	else
+		pAd->CommonCfg.CentralChannel = pAd->CommonCfg.Channel;
 
-		pAd->hw_cfg.cent_ch = pAd->CommonCfg.CentralChannel;
-		bbp_set_bw(pAd, pAd->CommonCfg.RegTransmitSetting.field.BW);
-		AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel, FALSE);
-		AsicLockChannel(pAd, pAd->CommonCfg.CentralChannel);
-	}
+	pAd->hw_cfg.cent_ch = pAd->CommonCfg.CentralChannel;
+	bbp_set_bw(pAd, pAd->CommonCfg.RegTransmitSetting.field.BW);
+	AsicSwitchChannel(pAd, pAd->CommonCfg.CentralChannel, FALSE);
+	AsicLockChannel(pAd, pAd->CommonCfg.CentralChannel);
 
 	CFG80211DBG(RT_DEBUG_TRACE, ("80211> New CH = %d, New BW = %d with Ext[%d]\n",
 				     pAd->CommonCfg.CentralChannel,
@@ -796,6 +789,7 @@ BOOLEAN CFG80211DRV_StaGet(RTMP_ADAPTER *pAd, const u8 *mac, CMD_IOCTL_80211_STA
 	{
 		HTTRANSMIT_SETTING PhyInfo;
 		UINT32 DataRate = 0;
+		UINT32 RSSI;
 
 		/* fill tx rate */
 		if ((!WMODE_CAP_N(pAd->CommonCfg.PhyMode)) ||
@@ -840,10 +834,8 @@ BOOLEAN CFG80211DRV_StaGet(RTMP_ADAPTER *pAd, const u8 *mac, CMD_IOCTL_80211_STA
 		sta->rx_packets = pAd->WlanCounters.ReceivedFragmentCount.QuadPart;
 
 		/* fill signal */
-		pAd->StaCfg.StaRssi = RTMPAvgRssi(pAd, &pAd->StaCfg.RssiSample);
-		sta->Signal = pAd->StaCfg.StaRssi;
-		DBGPRINT(RT_DEBUG_TRACE, ("%s RSSI = %d\n",
-				  __func__, pAd->StaCfg.StaRssi));
+		RSSI = RTMPAvgRssi(pAd, &pAd->StaCfg.RssiSample);
+		sta->Signal = RSSI;
 	}
 #endif /* CONFIG_STA_SUPPORT */
 
@@ -1021,7 +1013,7 @@ BOOLEAN CFG80211DRV_Connect(VOID *pAdOrg, VOID *pData)
 	UCHAR SSID[NDIS_802_11_LENGTH_SSID + 1];	/* Add One for SSID_Len == 32 */
 	UINT32 SSIDLen;
 	RT_CMD_STA_IOCTL_SECURITY_ADV IoctlWpa;
-	long expire = RTMPMsecsToJiffies(2000);
+
 #ifdef CONFIG_MULTI_CHANNEL
 	ULONG Value;
 	ULONG TimeTillTbtt;
@@ -1200,17 +1192,6 @@ BOOLEAN CFG80211DRV_Connect(VOID *pAdOrg, VOID *pData)
 
 	Set_SSID_Proc(pAd, (PSTRING) SSID);
 	CFG80211DBG(RT_DEBUG_TRACE, ("80211> Connecting SSID = %s\n", SSID));
-	RTMP_OS_INIT_COMPLETION(&pAd->cfg80211_ctrl.StaConnDone);
-	if (!RTMP_OS_WAIT_FOR_COMPLETION_TIMEOUT
-		(&pAd->cfg80211_ctrl.StaConnDone, expire)) {
-		DBGPRINT(RT_DEBUG_TRACE,
-			("%s,  Sta connect Timeout(%d)ms\n", __func__,
-			(APCLI_CONN_TIMEOUT)));
-	}
-	DBGPRINT(RT_DEBUG_TRACE,
-		("%s,  end wait Sta connect <=========\n", __func__));
-	RTMP_OS_EXIT_COMPLETION(&pAd->cfg80211_ctrl.StaConnDone);
-
 #endif /* CONFIG_STA_SUPPORT */
 
 	return TRUE;
@@ -1465,247 +1446,6 @@ VOID CFG80211_RegHint11D(IN VOID *pAdCB, IN UCHAR *pCountryIe, IN ULONG CountryI
 	CFG80211OS_RegHint11D(CFG80211CB, pCountryIe, CountryIeLen);
 }
 
-NDIS_STATUS CFG80211_StoreChList(PRTMP_ADAPTER pAd, struct ieee80211_supported_band *band2g,
-				struct ieee80211_supported_band *band5g)
-{
-	UINT32 band_id;
-	UINT32 num_ch, ch_id, RecId, DfsType;
-
-	CFG80211DBG(RT_DEBUG_TRACE, ("crda> set by core sync channel list, %s\n", __func__));
-	DfsType = CE;
-	RecId = 0;
-
-	NdisZeroMemory(pAd->ChannelList, MAX_NUM_OF_CHANNELS * sizeof(CHANNEL_TX_POWER));
-	for (band_id = 0; band_id < 2; band_id++) {
-		struct ieee80211_supported_band *band_tmp = NULL;
-		struct ieee80211_channel *channels = NULL;
-
-		if (band_id == 0) {
-			CFG80211DBG(RT_DEBUG_TRACE, ("crda> reset chan/power for 2.4GHz\n"));
-			band_tmp = band2g;
-		} else {
-			CFG80211DBG(RT_DEBUG_TRACE, ("crda> reset chan/power for 5GHz\n"));
-			band_tmp = band5g;
-		}
-
-		if (!band_tmp)
-			goto fail4;
-		num_ch = band_tmp->n_channels;
-		channels = band_tmp->channels;
-
-		if (!channels)
-			goto fail5;
-
-		for (ch_id = 0; ch_id < num_ch; ch_id++) {
-			struct ieee80211_channel ch = channels[ch_id];
-			UINT32 chidx = 0;
-
-			chidx = ieee80211_frequency_to_channel(ch.center_freq);
-			if (ch.flags & IEEE80211_CHAN_DISABLED) {
-				CFG80211DBG(RT_DEBUG_TRACE, ("Chan %u (frq %d):\t not allowed, flags:%x\n",
-					     chidx, ch.center_freq, ch.flags));
-				continue;
-			}
-			CFG80211DBG(RT_DEBUG_TRACE, ("channel %d,\t", chidx));
-			CFG80211DBG(RT_DEBUG_TRACE, ("flag(%x): ", ch.flags));
-			if (ch.flags & CHANNEL_PASSIVE_SCAN)
-				CFG80211DBG(RT_DEBUG_TRACE, ("%s ", "PASSIVE_SCAN"));
-			if (ch.flags & CHANNEL_RADAR)
-				CFG80211DBG(RT_DEBUG_TRACE, ("%s ", "RADAR"));
-			if (!(ch.flags & IEEE80211_CHAN_NO_HT40PLUS)
-				|| !(ch.flags & IEEE80211_CHAN_NO_HT40MINUS))
-				CFG80211DBG(RT_DEBUG_TRACE, ("%s ", "CHANNEL_40M_CAP"));
-			if (!(ch.flags & IEEE80211_CHAN_NO_80MHZ))
-				CFG80211DBG(RT_DEBUG_TRACE, ("%s\n", "CHANNEL_80M_CAP"));
-			/* keep channel number */
-			pAd->ChannelList[RecId].Channel = chidx;
-			/* keep maximum tranmission power */
-			pAd->ChannelList[RecId].MaxTxPwr = ch.max_power;
-			/* keep DFS flag */
-			pAd->ChannelList[RecId].DfsReq = (ch.flags & CHANNEL_RADAR)?TRUE:FALSE;
-			/* keep DFS type */
-			pAd->ChannelList[RecId].RegulatoryDomain = DfsType;
-			pAd->ChannelList[RecId].regFlags = ch.flags;
-			pAd->ChannelList[RecId].Flags = (ch.flags & 0x3f);
-			if (!(ch.flags & IEEE80211_CHAN_NO_HT40MINUS)
-				|| !(ch.flags & IEEE80211_CHAN_NO_HT40PLUS))
-				pAd->ChannelList[RecId].Flags |= CHANNEL_40M_CAP;
-			if (!(ch.flags & IEEE80211_CHAN_NO_80MHZ))
-				pAd->ChannelList[RecId].Flags |= CHANNEL_80M_CAP;
-			/* re-set DFS info. */
-			pAd->CommonCfg.RDDurRegion = DfsType;
-
-			CFG80211DBG(RT_DEBUG_TRACE, ("Chan %03d:\tpower %d dBm, DFS %d, DFS Type %d\n"
-					, chidx, ch.max_power, pAd->ChannelList[RecId].DfsReq, DfsType));
-			/* change to record next channel info. */
-			RecId++;
-		}
-	}
-	pAd->ChannelListNum = RecId;
-
-	return NDIS_STATUS_SUCCESS;
-fail4:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail4: Parsinig band info fail\n"
-		, __func__));
-fail5:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail5: channelist NULL\n"
-		, __func__));
-	return NDIS_STATUS_FAILURE;
-}
-
-NDIS_STATUS CFG80211_UpdateChList(PRTMP_ADAPTER pAd, UINT8 supFlags
-	, struct ieee80211_supported_band *band2g, struct ieee80211_supported_band *band5g)
-{
-	UINT32 band_id;
-	UINT32 num_ch, ch_id;
-	INT sup_band = 0;
-	INT start_band = (supFlags & RFIC_24GHZ)?0:1;
-	CFG80211_CB *cfg80211_cb = NULL;
-	struct _CH_FLAGS_BEACON *flags_updated;
-	ULONG IrqFlags;
-
-	if (supFlags & RFIC_24GHZ)
-		sup_band++;
-
-	if (supFlags & RFIC_5GHZ)
-		sup_band++;
-
-	RTMP_DRIVER_80211_CB_GET(pAd, &cfg80211_cb);
-	flags_updated = cfg80211_cb->ch_flags_by_beacon;
-	RTMP_IRQ_LOCK(&pAd->irq_lock, IrqFlags);
-	/* 1. Calcute the Channel Number */
-	CFG80211DBG(RT_DEBUG_TRACE, ("crda> update wiphy channel list, %s\n", __func__));
-	for (band_id = start_band; band_id < sup_band; band_id++) {
-		struct ieee80211_supported_band *band_tmp = NULL;
-		struct ieee80211_channel *channels = NULL;
-
-		if (band_id == 0) {
-			CFG80211DBG(RT_DEBUG_TRACE, ("%s, crda> reset chan/power for 2.4GHz\n", __func__));
-			band_tmp = band2g;
-		} else {
-			CFG80211DBG(RT_DEBUG_TRACE, ("%s crda> reset chan/power for 5GHz\n", __func__));
-			band_tmp = band5g;
-		}
-
-		if (!band_tmp)
-			goto fail4;
-		num_ch = band_tmp->n_channels;
-		channels = band_tmp->channels;
-
-		if (!channels)
-			goto fail5;
-
-		for (ch_id = 0; ch_id < num_ch; ch_id++) {
-			struct ieee80211_channel *ch = &channels[ch_id];
-			UINT32 chidx = 0;
-			INT drv_idx = 0;
-			INT idx = 0;
-			chidx = ieee80211_frequency_to_channel(ch->center_freq);
-
-			for (drv_idx = 0; drv_idx < pAd->ChannelListNum; drv_idx++) {
-				if (pAd->ChannelList[drv_idx].Channel == chidx)
-					break;
-			}
-
-			for (idx = 0; idx < Num_Cfg80211_Chan; idx++) {
-				if (flags_updated[idx].ch == chidx)
-					break;
-			}
-
-			if (drv_idx == pAd->ChannelListNum) {
-				ch->flags = 0x3b;
-				CFG80211DBG(RT_DEBUG_TRACE, ("Chan %u (frq %d):\t not allowed, flags:%x\n",
-					     chidx, ch->center_freq, ch->flags));
-			} else {
-				ch->max_power = pAd->ChannelList[drv_idx].MaxTxPwr;
-				pAd->ChannelList[drv_idx].regFlags = ch->flags;
-				CFG80211DBG(RT_DEBUG_TRACE, ("Chan %u (frq %d):\t allowed, flags:%x\n",
-					     chidx, ch->center_freq, ch->flags));
-			}
-
-			if (idx != Num_Cfg80211_Chan) {
-				if (!(ch->flags & flags_updated[idx].flags & IEEE80211_CHAN_PASSIVE_SCAN)
-					&& (ch->flags & IEEE80211_CHAN_PASSIVE_SCAN)) {
-					CFG80211DBG(RT_DEBUG_TRACE,
-						("IEEE80211_CHAN_PASSIVE_SCAN update beacon flags %x ch:%u\n"
-						, ch->flags, flags_updated[idx].ch));
-				}
-				if (ch->flags & IEEE80211_CHAN_RADAR) {
-					pAd->ChannelList[drv_idx].DfsReq = TRUE;
-					CFG80211DBG(RT_DEBUG_TRACE,
-						("IEEE80211_CHAN_RADAR update beacon flags %x\n"
-						, ch->flags));
-				} else
-					pAd->ChannelList[drv_idx].DfsReq = FALSE;
-
-			} else
-				CFG80211DBG(RT_DEBUG_TRACE, ("%s, flags %x not updated ch %u\n"
-					, __func__, ch->flags, chidx));
-		}
-	}
-	RTMP_IRQ_UNLOCK(&pAd->irq_lock, IrqFlags);
-	return NDIS_STATUS_SUCCESS;
-
-fail4:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail4: Parsinig band info fail\n"
-		, __func__));
-fail5:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail5: channelist NULL\n"
-		, __func__));
-	return NDIS_STATUS_FAILURE;
-}
-
-NDIS_STATUS CFG80211_SyncCore_ChList(IN VOID *pAdCB, IN VOID *wiphy)
-{
-	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER) pAdCB;
-	struct wiphy *pWiphy = (struct wiphy *)wiphy;
-	struct ieee80211_supported_band *band2g = NULL;
-	struct ieee80211_supported_band *band5g = NULL;
-	CFG80211_BAND band_info;
-
-	CFG80211DBG(RT_DEBUG_TRACE, ("crda> set by core sync channel list\n"));
-	if (!wiphy) {
-		CFG80211DBG(RT_DEBUG_TRACE, ("%s, wiphy null try get from driver.\n"
-			, __func__));
-		if (!pAd->net_dev)
-			goto fail1;
-		pWiphy = pAd->net_dev->ieee80211_ptr->wiphy;
-	}
-
-	if (pWiphy == NULL)
-		goto fail1;
-
-	/* Init */
-	RTMP_DRIVER_80211_BANDINFO_GET(pAd, &band_info);
-
-	if (band_info.RFICType == 0)
-		band_info.RFICType = RFIC_24GHZ | RFIC_5GHZ;
-
-	/* 1. Calcute the Channel Number */
-	if (band_info.RFICType & RFIC_5GHZ)
-		band5g = pWiphy->bands[IEEE80211_BAND_5GHZ];
-
-	band2g = pWiphy->bands[IEEE80211_BAND_2GHZ];
-
-	if (!band2g)
-		goto fail3;
-
-	if (pAd->flagsUpdated)
-		CFG80211_UpdateChList(pAd, band_info.RFICType, band2g, band5g);
-	else if (wiphy)
-		CFG80211_StoreChList(pAd, band2g, band5g);
-	else if (pAd->ChannelListNum)
-		CFG80211_UpdateChList(pAd, band_info.RFICType, band2g, band5g);
-	else
-		RT_CFG80211_CRDA_REG_RULE_APPLY(pAd);
-	return NDIS_STATUS_SUCCESS;
-fail1:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail1: wiphy NULL\n", __func__));
-fail3:
-	CFG80211DBG(RT_DEBUG_ERROR, ("%s-fail3: 2.4g channel list NULL\n"
-		, __func__));
-	return NDIS_STATUS_FAILURE;
-}
 /*
 ========================================================================
 Routine Description:
@@ -1734,13 +1474,12 @@ VOID CFG80211_RegRuleApply(IN VOID *pAdCB, IN VOID *pWiphy, IN UCHAR *pAlpha2)
 	UINT32 ChanNum, ChanId, Power, RecId, DfsType;
 	BOOLEAN FlgIsRadar;
 	ULONG IrqFlags;
-	UINT32 chFlags = 0;
 #ifdef DFS_SUPPORT
 	RADAR_DETECT_STRUCT *pRadarDetect;
 #endif /* DFS_SUPPORT */
 	UCHAR ChannelListFlags[MAX_NUM_OF_CHANNELS][2];
 	INT32 Idx = 0;
-	PCFG80211_CTRL cfg80211_ctrl = NULL;
+
 	CFG80211DBG(RT_DEBUG_TRACE, ("crda> CFG80211_RegRuleApply ==>\n"));
 
 	/* init */
@@ -1755,11 +1494,9 @@ VOID CFG80211_RegRuleApply(IN VOID *pAdCB, IN VOID *pWiphy, IN UCHAR *pAlpha2)
 	/* Fix channel flags been cleared problem.
 	   Since the channel flags have been built already, we need to backup and restore those flags
 	 */
-	if (pAd->flagsUpdated) {
-		for (IdChan = 0; IdChan < MAX_NUM_OF_CHANNELS; IdChan++) {
-			ChannelListFlags[IdChan][0] = pAd->ChannelList[IdChan].Channel;
-			ChannelListFlags[IdChan][1] = pAd->ChannelList[IdChan].Flags;
-		}
+	for (IdChan = 0; IdChan < MAX_NUM_OF_CHANNELS; IdChan++) {
+		ChannelListFlags[IdChan][0] = pAd->ChannelList[IdChan].Channel;
+		ChannelListFlags[IdChan][1] = pAd->ChannelList[IdChan].Flags;
 	}
 	/* zero first */
 	NdisZeroMemory(pAd->ChannelList, MAX_NUM_OF_CHANNELS * sizeof(CHANNEL_TX_POWER));
@@ -1809,9 +1546,6 @@ VOID CFG80211_RegRuleApply(IN VOID *pAdCB, IN VOID *pWiphy, IN UCHAR *pAlpha2)
 
 	CFG80211DBG(RT_DEBUG_ERROR, ("crda> find region %d-%d, DFS Type %d\n",
 				     pAlpha2[0], pAlpha2[1], DfsType));
-#ifdef SINGLE_SKU_V2
-	RTMPLoadSKUProfile(pAd, pAlpha2);
-#endif
 
 	for (IdBand = 0; IdBand < 2; IdBand++) {
 		if (((IdBand == 0) && (pBand24G == NULL)) || ((IdBand == 1) && (pBand5G == NULL))) {
@@ -1828,7 +1562,7 @@ VOID CFG80211_RegRuleApply(IN VOID *pAdCB, IN VOID *pWiphy, IN UCHAR *pAlpha2)
 
 		for (IdChan = 0; IdChan < ChanNum; IdChan++) {
 			if (CFG80211OS_ChanInfoGet(CFG80211CB, pWiphy, IdBand, IdChan,
-						   &ChanId, &Power, &FlgIsRadar, &chFlags) == FALSE) {
+						   &ChanId, &Power, &FlgIsRadar) == FALSE) {
 				/* the channel is not allowed in the regulatory domain */
 				/* get next channel information */
 				continue;
@@ -1867,6 +1601,7 @@ VOID CFG80211_RegRuleApply(IN VOID *pAdCB, IN VOID *pWiphy, IN UCHAR *pAlpha2)
 
 					/* keep DFS type */
 					pAd->ChannelList[RecId].RegulatoryDomain = DfsType;
+
 					/* Fix channel flags been cleared problem.
 					   Since the channel flags have been built already, we need to backup and restore those flags
 					 */
@@ -1878,18 +1613,7 @@ VOID CFG80211_RegRuleApply(IN VOID *pAdCB, IN VOID *pWiphy, IN UCHAR *pAlpha2)
 							break;
 						}
 					}
-					pAd->ChannelList[RecId].regFlags = chFlags;
-					pAd->ChannelList[RecId].Flags = (chFlags & 0x3f);
-					if (!(chFlags & IEEE80211_CHAN_NO_HT40MINUS)
-						|| !(chFlags & IEEE80211_CHAN_NO_HT40PLUS))
-						pAd->ChannelList[RecId].Flags |= CHANNEL_40M_CAP;
-					if (!(chFlags & IEEE80211_CHAN_NO_80MHZ))
-						pAd->ChannelList[RecId].Flags |= CHANNEL_80M_CAP;
-					if (pAd->flagsUpdated && (Idx != MAX_NUM_OF_CHANNELS)
-						&& !(ChannelListFlags[Idx][1] &&
-						(IEEE80211_CHAN_PASSIVE_SCAN|IEEE80211_CHAN_RADAR)))
-						pAd->ChannelList[RecId].Flags &=
-							~(IEEE80211_CHAN_PASSIVE_SCAN|IEEE80211_CHAN_RADAR);
+
 					/* re-set DFS info. */
 					pAd->CommonCfg.RDDurRegion = DfsType;
 
@@ -1908,37 +1632,8 @@ VOID CFG80211_RegRuleApply(IN VOID *pAdCB, IN VOID *pWiphy, IN UCHAR *pAlpha2)
 	}
 
 	pAd->ChannelListNum = RecId;
-
-	cfg80211_ctrl = &pAd->cfg80211_ctrl;
-	if (cfg80211_ctrl->pCfg80211ChanList != NULL)
-		os_free_mem(NULL, cfg80211_ctrl->pCfg80211ChanList);
-	os_alloc_mem(NULL, (UCHAR **) &cfg80211_ctrl->pCfg80211ChanList,
-		     sizeof(UINT32) * RecId);
-	if (cfg80211_ctrl->pCfg80211ChanList != NULL) {
-		for (ChanId = 0; ChanId < pAd->ChannelListNum; ChanId++)
-			cfg80211_ctrl->pCfg80211ChanList[ChanId] =
-				pAd->ChannelList[ChanId].Channel;
-		cfg80211_ctrl->Cfg80211ChanListLen = RecId;
-		cfg80211_ctrl->Cfg80211CurChanIndex = 0;	/* Start from index 0 */
-		CFG80211DBG(RT_DEBUG_TRACE, ("crda> set channel list success\n"));
-	} else {
-		CFG80211DBG(RT_DEBUG_ERROR, ("crda> alloc channel list memory fail\n"));
-	}
-
 	RTMP_IRQ_UNLOCK(&pAd->irq_lock, IrqFlags);
 
-	if (pAd->flagsUpdated)
-		CFG80211_SyncCore_ChList(pAd, NULL);
-
-#ifdef SINGLE_SKU_V2
-	{
-		UCHAR ch = (pAd->CommonCfg.BBPCurrentBW)?pAd->CommonCfg.CentralChannel:pAd->CommonCfg.Channel;
-		AsicSwitchChannel(pAd, ch, FALSE);
-		CFG80211DBG(RT_DEBUG_WARN, ("%s cmncfg ch %u cmncfg central %u, hw_cfg.cent_ch, %u, ch %u, bw:%u\n"
-			, __func__, pAd->CommonCfg.Channel, pAd->CommonCfg.CentralChannel
-			, pAd->hw_cfg.cent_ch, ch, pAd->CommonCfg.BBPCurrentBW));
-	}
-#endif
 	CFG80211DBG(RT_DEBUG_TRACE, ("crda> Number of channels = %d\n", RecId));
 }				/* End of CFG80211_RegRuleApply */
 
@@ -1980,7 +1675,7 @@ VOID CFG80211_ConnectResultInform(IN VOID *pAdCB,
 		CFG80211DBG(RT_DEBUG_ERROR, ("[%s] Clear ongoing scan\n", __func__));
 		CFG80211DRV_OpsScanInLinkDownAction(pAd);
 	}
-	RTMP_OS_COMPLETE(&pAd->cfg80211_ctrl.StaConnDone);
+
 	pAd->cfg80211_ctrl.FlgCfg80211Connecting = FALSE;
 }				/* End of CFG80211_ConnectResultInform */
 
@@ -2010,7 +1705,6 @@ BOOLEAN CFG80211_SupBandReInit(IN VOID *pAdCB)
 	CFG80211DBG(RT_DEBUG_TRACE, ("80211> re-init bands...\n"));
 
 	/* re-init bands */
-	pAd->applyUpperLayerReg = FALSE;
 	NdisZeroMemory(&BandInfo, sizeof(BandInfo));
 	CFG80211_BANDINFO_FILL(pAd, &BandInfo);
 
@@ -2245,18 +1939,6 @@ UCHAR CFG80211_getCenCh(RTMP_ADAPTER *pAd, UCHAR prim_ch)
 		ret_channel = prim_ch;
 
 	return ret_channel;
-}
-
-UCHAR CFG80211DRV_GetDFSRegion(RTMP_ADAPTER *pAd, char Alpha2_0, char Alpha2_1)
-{
-	if (Alpha2_0 == 'G' && Alpha2_1 == 'B')
-		return NL80211_DFS_ETSI;
-	else if (Alpha2_0 == 'D' && Alpha2_1 == 'E')
-		return NL80211_DFS_ETSI;
-	else if (Alpha2_0 == 'F' && Alpha2_1 == 'R')
-		return NL80211_DFS_ETSI;
-	else
-		return NL80211_DFS_UNSET;
 }
 
 #endif /* RT_CFG80211_SUPPORT */

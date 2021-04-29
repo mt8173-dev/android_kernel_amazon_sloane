@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -25,9 +26,6 @@
 
 #include <linux/ieee80211.h>
 
-extern UCHAR Cfg80211_Chan[];
-extern const int Num_Cfg80211_Chan;
-
 #define RT_REG_RULE(regr, start, end, bw, gain, eirp, reg_flags) \
 	regr.freq_range.start_freq_khz = MHZ_TO_KHZ(start);	\
 	regr.freq_range.end_freq_khz = MHZ_TO_KHZ(end);	\
@@ -41,11 +39,6 @@ typedef enum _NDIS_HOSTAPD_STATUS {
 	Hostapd_EXT,
 	Hostapd_CFG
 } NDIS_HOSTAPD_STATUS, *PNDIS_HOSTAPD_STATUS;
-
-struct _CH_FLAGS_BEACON {
-	UCHAR ch;
-	UINT32 flags;
-};
 
 typedef struct __CFG80211_CB {
 
@@ -63,7 +56,6 @@ typedef struct __CFG80211_CB {
 	/* monitor filter */
 	UINT32 MonFilterFlag;
 
-	struct _CH_FLAGS_BEACON *ch_flags_by_beacon;
 	/* channel information */
 	struct ieee80211_channel ChanInfo[MAX_NUM_OF_CHANNELS];
 

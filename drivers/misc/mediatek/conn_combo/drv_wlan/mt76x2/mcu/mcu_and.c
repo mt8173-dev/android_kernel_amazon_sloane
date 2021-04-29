@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -25,8 +28,6 @@
 
 #include	"rt_config.h"
 
-#define WAIT_EMPTY_RETRY_COUNT		(200)
-#define WAIT_EMPTY_DELAY_TIME_US	(1000) /* in micro-second */
 
 #ifdef RTMP_MAC_USB
 static int andes_usb_enable_patch(RTMP_ADAPTER *ad)
@@ -593,7 +594,7 @@ NDIS_STATUS andes_usb_loadfw(RTMP_ADAPTER *ad)
 	RTMP_CHIP_CAP *cap = &ad->chipCap;
 	USB_DMA_CFG_STRUC cfg;
 	u32 ilm_len = 0, dlm_len = 0, fw_ver = 0;
-	u16 build_ver = 0;
+	u16 build_ver;
 	RTMP_OS_COMPLETION load_fw_done;
 
 	if (cap->ram_code_protect) {
@@ -682,12 +683,8 @@ loadfw_protect:
 	DBGPRINT(RT_DEBUG_OFF, ("build:%x\n", build_ver));
 	DBGPRINT(RT_DEBUG_OFF, ("build time:"));
 
-	NdisZeroMemory(ad->FirmwareSubVer, 17);
-	ad->FirmwareSubVer[16] = '\0';
-	for (loop = 0; loop < 16; loop++) {
-		ad->FirmwareSubVer[loop] = *(cap->FWImageName + 16 + loop);
+	for (loop = 0; loop < 16; loop++)
 		DBGPRINT(RT_DEBUG_OFF, ("%c", *(cap->FWImageName + 16 + loop)));
-	}
 
 	DBGPRINT(RT_DEBUG_OFF, ("\n"));
 
@@ -1487,20 +1484,6 @@ static void andes_rx_process_cmd_msg(RTMP_ADAPTER *ad, struct cmd_msg *rx_msg)
 	}
 #endif /* CONFIG_FW_DEBUG */
 
-#if (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT)
-	if (rx_info->evt_type == RSP_EVT_TYPE_WOW_EVENT) {
-		pRxRspEvtPayload = GET_OS_PKT_DATAPTR(net_pkt) + sizeof(*rx_info);
-		DBGPRINT(RT_DEBUG_TRACE,
-			 ("[%s]\n==========WOW_EVENT, RspEvtType = %d (len=%d)==================\n",
-			  __func__, rx_info->evt_type, rx_info->pkt_len));
-		if (ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND) {
-			ad->WOW_Cfg.extMode |= WOW_NEED_RESUME;
-			RTMP_MLME_HANDLER(ad);
-		}
-		DBGPRINT(RT_DEBUG_TRACE, ("%s\n", pRxRspEvtPayload));
-	}
-#endif
-
 #ifdef CONFIG_FW_CORE_DUMP
 	if (rx_info->evt_type == RSP_EVT_TYPE_FORCE_DUMP) {
 		pRxRspEvtPayload = GET_OS_PKT_DATAPTR(net_pkt) + sizeof(*rx_info);
@@ -1522,7 +1505,8 @@ static void andes_rx_process_cmd_msg(RTMP_ADAPTER *ad, struct cmd_msg *rx_msg)
 #ifdef WOW_BUF_PKT_SUPPORT
 	if (rx_info->evt_type == RSP_EVT_TYPE_WOW_RSP_PACKET) {
 		pRxRspEvtPayload = GET_OS_PKT_DATAPTR(net_pkt) + sizeof(*rx_info);
-		DBGPRINT(RT_DEBUG_TRACE, ("%s: WOW_RSP_PACKET_EVENT\n", __func__));
+		DBGPRINT(RT_DEBUG_ERROR, ("%s: WOW_RSP_PACKET_EVENT, RspEvtType = %d (len=%d)\n",
+			__func__, rx_info->evt_type, rx_info->pkt_len));
 		RtmpOsBufPktRcvHandle(ad->net_dev, pRxRspEvtPayload, rx_info->pkt_len);
 	}
 #endif /* WOW_BUF_PKT_SUPPORT */
@@ -1970,9 +1954,6 @@ void andes_ctrl_init(RTMP_ADAPTER *ad)
 	struct MCU_CTRL *ctl = &ad->MCUCtrl;
 
 	if (!OS_TEST_BIT(MCU_INIT, &ctl->flags)) {
-		/*avoid to tx/rx not be disable and load firmware timeout */
-		if (!andes_check_tx_rx_disable(ad))
-			andes_suspend_CR_setting(ad);
 
 #ifdef RTMP_USB_SUPPORT
 		andes_ctrl_usb_init(ad);
@@ -2196,13 +2177,16 @@ retransmit:
 			/* Set to 0 First */
 			write_reg(ad, 0x41, 0x0250, 0);
 
+			/* Debug CR */
+			Set_Register_Dump(ad, 1);
+
 #ifdef CMD_TIMEOUT_RECOVER_SUPPORT
 			if (msg->retransmit_times == 0) {
 				DBGPRINT(RT_DEBUG_ERROR,
 					 ("%s: Continuous cmd timeout for %d times, Reset!\n",
 						__func__,
 						CMD_MSG_RETRANSMIT_TIMES));
-				/* RTMP_SET_FLAG(ad, fRTMP_ADAPTER_NIC_NOT_EXIST); */
+				RTMP_SET_FLAG(ad, fRTMP_ADAPTER_NIC_NOT_EXIST);
 				Set_Chip_Reset(ad, NULL);
 			}
 #endif /* CMD_TIMEOUT_RECOVER_SUPPORT */
@@ -3048,19 +3032,16 @@ int andes_calibration(RTMP_ADAPTER *ad, u32 cal_id, ANDES_CALIBRATION_PARAM *par
 	struct cmd_msg *msg;
 	u32 value;
 	int ret = 0;
-	UINT32 QPageCnt = 0;
-	BOOLEAN retransmit = TRUE;
-	DBGPRINT(RT_DEBUG_TRACE, ("%s:cal_id(%d)\n ", __func__, cal_id));
+
+	DBGPRINT(RT_DEBUG_INFO, ("%s:cal_id(%d)\n ", __func__, cal_id));
 
 #ifdef MT76x2
 #endif /* MT76x2 */
 
 #ifdef MT76x2
 	/* Calibration ID and Parameter */
-	if (cal_id == TSSI_COMPENSATION_7662 && IS_MT76x2(ad)) {
+	if (cal_id == TSSI_COMPENSATION_7662 && IS_MT76x2(ad))
 		msg = andes_alloc_cmd_msg(ad, 12);
-		retransmit = FALSE;
-	}
 	else
 #endif /* MT76x2 */
 		msg = andes_alloc_cmd_msg(ad, 8);
@@ -3070,7 +3051,7 @@ int andes_calibration(RTMP_ADAPTER *ad, u32 cal_id, ANDES_CALIBRATION_PARAM *par
 		goto error;
 	}
 
-	andes_init_cmd_msg(msg, CMD_CALIBRATION_OP, TRUE, 0, retransmit, TRUE, 0, NULL, NULL);
+	andes_init_cmd_msg(msg, CMD_CALIBRATION_OP, TRUE, 0, TRUE, TRUE, 0, NULL, NULL);
 
 	/* Calibration ID */
 	value = cpu2le32(cal_id);
@@ -3090,13 +3071,9 @@ int andes_calibration(RTMP_ADAPTER *ad, u32 cal_id, ANDES_CALIBRATION_PARAM *par
 		value = cpu2le32(param->generic);
 		andes_append_cmd_msg(msg, (char *)&value, 4);
 	}
-	read_reg(ad, 0x41, 0x0A30, &QPageCnt);
-	DBGPRINT(RT_DEBUG_TRACE, ("%s 0x41_0A30: 0x%x\n", __func__, QPageCnt));
-	read_reg(ad, 0x41, 0x0438, &QPageCnt);
-	DBGPRINT(RT_DEBUG_TRACE, ("%s 0x41_0438: 0x%x\n", __func__, QPageCnt));
 
 	ret = andes_send_cmd_msg(ad, msg);
-	DBGPRINT(RT_DEBUG_TRACE, ("%s:cal_id(%d) done (%d)\n ", __func__, cal_id, ret));
+
 #ifdef MT76x2
 #endif /* MT76x2 */
 
@@ -3104,6 +3081,7 @@ error:
 	return ret;
 }
 
+#ifdef NEW_WOW_SUPPORT
 void reset_TxRx_Info(struct _RTMP_ADAPTER *ad)
 {
 	int i = 0;
@@ -3184,7 +3162,6 @@ void reset_TxRx_Info(struct _RTMP_ADAPTER *ad)
 	ad->MgmtRing.TxDmaIdx = 0;
 }
 
-#ifdef NEW_WOW_SUPPORT
 void andes_send_dummy_bulkout(struct _RTMP_ADAPTER *ad)
 {
 
@@ -3352,76 +3329,8 @@ static void andes_traffic_switch_callback(struct cmd_msg *msg,
 					  char *rsp_payload,
 					  u16 rsp_payload_len)
 {
-	DBGPRINT(RT_DEBUG_TRACE, ("%s\n", __func__));
+	DBGPRINT(RT_DEBUG_ERROR, ("%s\n", __func__));
 	*msg->rsp_payload = 1;
-}
-
-int andes_wow_set_ssid_conf(struct _RTMP_ADAPTER *ad)
-{
-	PMULTISSID_STRUCT pMbss = &ad->ApCfg.MBSSID[MAIN_MBSSID];
-	NDIS_STATUS ret = NDIS_STATUS_SUCCESS;
-	NEW_WOW_P2P_CFG_STRUCT p2p_cfg;
-	struct cmd_msg *msg;
-	u32 *data = NULL;
-	u32 value, i;
-	unsigned int var_len;
-
-	if (!pMbss) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s, No Mbss\n", __func__));
-		return NDIS_STATUS_FAILURE;
-	}
-
-	if (!pMbss->SsidLen || (pMbss->SsidLen >= MAX_LEN_OF_SSID)) {
-		DBGPRINT(RT_DEBUG_ERROR, ("%s, Error Mbss->SsidLen %u\n",
-			__func__, pMbss->SsidLen));
-		return NDIS_STATUS_FAILURE;
-	}
-
-	DBGPRINT(RT_DEBUG_ERROR, ("%s, Mbss Ssid:%s, ssid len:%u\n"
-		, __func__, pMbss->Ssid, pMbss->SsidLen));
-	/* WOW config */
-	var_len = sizeof(p2p_cfg);
-	NdisZeroMemory(&p2p_cfg, var_len);
-
-	if (!RTMP_CFG80211_VIF_P2P_GO_ON(ad))
-		DBGPRINT(RT_DEBUG_ERROR, ("\n\n%s, P2P GO disappeared, still send fw cmd\n\n"
-			, __func__));
-	p2p_cfg.Config_Type = WOW_P2P_CFG;
-	if (IsRemotePassiveCh(ad))
-		p2p_cfg.WakeDur = WOW_PASSIVE_DUR;
-	else
-		p2p_cfg.WakeDur = ad->WOW_Cfg.awakeTime;
-	p2p_cfg.SsidLen = pMbss->SsidLen;
-	p2p_cfg.extMode = ad->WOW_Cfg.extMode;
-	NdisMoveMemory(&p2p_cfg.Ssid, pMbss->Ssid, pMbss->SsidLen);
-
-	DBGPRINT(RT_DEBUG_OFF, ("%s, p2p_cfg.Ssid:%s, ssid len:%u, wake time:%x, extmode %x\n"
-		, __func__, p2p_cfg.Ssid, p2p_cfg.SsidLen, p2p_cfg.WakeDur, p2p_cfg.extMode));
-
-	msg = andes_alloc_cmd_msg(ad, var_len);
-
-	if (!msg) {
-		ret = NDIS_STATUS_RESOURCES;
-		goto error;
-	}
-
-	andes_init_cmd_msg(msg, CMD_WOW_CONFIG, FALSE, 0, TRUE, FALSE, 0, NULL, NULL);
-	/* WOW config */
-	data = (PUINT32) (&p2p_cfg);
-	for (i = 0; i < (var_len / 4); i++) {
-		value = cpu2le32(data[i]);
-		andes_append_cmd_msg(msg, (char *)&value, 4);
-	}
-
-	ret = andes_send_cmd_msg(ad, msg);
-	if (ret) {
-		DBGPRINT(RT_DEBUG_ERROR, ("WOW send command WOW_P2P_CFG\n"));
-		goto error;
-	}
-error:
-	RtmpOsMsDelay(1);
-
-	return ret;
 }
 
 int andes_wow_enable(struct _RTMP_ADAPTER *ad)
@@ -3436,7 +3345,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	NEW_WOW_ARP_OFFLOAD_CFG_STRUCT offload_arp_cfg;
 	struct _NEW_WOW_ALWAYS_TRIGGER_STRUCT wow_trig_cfg;
 	UINT32 Value = 0;
-	UINT32 count = 0;
+	UINT32 count = 0, MacCsr12 = 0;
 	UINT32 zeroIP[4] = { 0x00 };
 
 	struct cmd_msg *msg;
@@ -3447,16 +3356,9 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	MAC_TABLE_ENTRY *pEntry = NULL;
 	unsigned int cmdCbk = 0;
 #if (defined(P2P_SUPPORT) || defined(RT_CFG80211_P2P_CONCURRENT_DEVICE)) && defined(WOW_STA_MODE)
-	UINT32 Addr4;
+	ULONG Addr4;
 	PUCHAR pBssid = NULL;
 #endif /* endif */
-	ULONG log_lvl_bk = 0;
-
-	if ((ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND)
-		&& (RTDebugLevel > RT_DEBUG_TRACE)) {
-		log_lvl_bk = RTDebugLevel;
-		RTDebugLevel = RT_DEBUG_ERROR;
-	}
 
 	DBGPRINT(RT_DEBUG_TRACE, ("%s:--->\n", __func__));
 
@@ -3492,15 +3394,15 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	 */
 
 	pBssid = ad->CommonCfg.Bssid;
-	DBGPRINT(RT_DEBUG_TRACE, ("===> WOW Set Bssid %x:%x:%x:%x:%x:%x\n", PRINT_MAC(pBssid)));
+	DBGPRINT(RT_DEBUG_ERROR, ("===> WOW Set Bssid %x:%x:%x:%x:%x:%x\n", PRINT_MAC(pBssid)));
 
-	Addr4 = (UINT32) (pBssid[0]) |
-		(UINT32) (pBssid[1] << 8) | (UINT32) (pBssid[2] << 16) | (UINT32) (pBssid[3] << 24);
+	Addr4 = (ULONG) (pBssid[0]) |
+	    (ULONG) (pBssid[1] << 8) | (ULONG) (pBssid[2] << 16) | (ULONG) (pBssid[3] << 24);
 	RTMP_IO_WRITE32(ad, MAC_BSSID_DW0, Addr4);
 
 	Addr4 = 0;
 	/* always one BSSID in STA mode */
-	Addr4 = (UINT32) (pBssid[4]) | (UINT32) (pBssid[5] << 8);
+	Addr4 = (ULONG) (pBssid[4]) | (ULONG) (pBssid[5] << 8);
 	RTMP_IO_WRITE32(ad, MAC_BSSID_DW1, Addr4);
 #endif /* endif */
 
@@ -3566,7 +3468,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 
 	/* for wake up by TCP packet */
 	if (ad->WOW_Cfg.TcpPortCntV4 != 0 || ad->WOW_Cfg.TcpPortCntV6 != 0) {
-		DBGPRINT(RT_DEBUG_TRACE, ("Set TCP packet wake up\n"));
+		DBGPRINT(RT_DEBUG_ERROR, ("Set TCP packet wake up\n"));
 		var_len = sizeof(tcp_cfg);
 		NdisZeroMemory(&tcp_cfg, var_len);
 
@@ -3579,7 +3481,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 		tcp_cfg.TcpPortCountV4 = (ad->WOW_Cfg.TcpPortCntV4 > WOW_MAX_PORT_NUM_TCPV4) ?
 		    (WOW_MAX_PORT_NUM_TCPV4) : (ad->WOW_Cfg.TcpPortCntV4);
 		if (tcp_cfg.TcpPortCountV4 != 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
+			DBGPRINT(RT_DEBUG_ERROR,
 				 ("WOW TCPv4 port count=:%d\n", tcp_cfg.TcpPortCountV4));
 			for (i = 0; i < tcp_cfg.TcpPortCountV4; i++) {
 				if (ad->WOW_Cfg.TcpPortV4[i] == 0) {
@@ -3589,7 +3491,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 					break;
 				}
 				tcp_cfg.TcpPortV4[i] = ad->WOW_Cfg.TcpPortV4[i];
-				DBGPRINT(RT_DEBUG_TRACE,
+				DBGPRINT(RT_DEBUG_ERROR,
 					 ("Set TCP port v4:%d\n", tcp_cfg.TcpPortV4[i]));
 			}
 		}
@@ -3597,7 +3499,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 		tcp_cfg.TcpPortCountV6 = (ad->WOW_Cfg.TcpPortCntV6 > WOW_MAX_PORT_NUM_TCPV6) ?
 		    (WOW_MAX_PORT_NUM_TCPV6) : (ad->WOW_Cfg.TcpPortCntV6);
 		if (tcp_cfg.TcpPortCountV6 != 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
+			DBGPRINT(RT_DEBUG_ERROR,
 				 ("WOW TCPv6 port count=:%d\n", tcp_cfg.TcpPortCountV6));
 			for (i = 0; i < tcp_cfg.TcpPortCountV6; i++) {
 				if (ad->WOW_Cfg.TcpPortV6[i] == 0) {
@@ -3640,7 +3542,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	}
 	/* for wake up by UDP packet */
 	if (ad->WOW_Cfg.UdpPortCntV4 != 0 || ad->WOW_Cfg.UdpPortCntV6 != 0) {
-		DBGPRINT(RT_DEBUG_TRACE, ("Set UDP packet wake up\n"));
+		DBGPRINT(RT_DEBUG_ERROR, ("Set UDP packet wake up\n"));
 		var_len = sizeof(udp_cfg);
 		NdisZeroMemory(&udp_cfg, var_len);
 
@@ -3649,7 +3551,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 		udp_cfg.UdpPortCountV4 = (ad->WOW_Cfg.UdpPortCntV4 > WOW_MAX_PORT_NUM_UDPV4) ?
 		    WOW_MAX_PORT_NUM_UDPV4 : ad->WOW_Cfg.UdpPortCntV4;
 		if (udp_cfg.UdpPortCountV4 != 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
+			DBGPRINT(RT_DEBUG_ERROR,
 				 ("WOW UDPv4 port count=:%d\n", udp_cfg.UdpPortCountV4));
 			for (i = 0; i < udp_cfg.UdpPortCountV4; i++) {
 				if (ad->WOW_Cfg.UdpPortV4[i] == 0) {
@@ -3659,7 +3561,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 					break;
 				}
 				udp_cfg.UdpPortV4[i] = ad->WOW_Cfg.UdpPortV4[i];
-				DBGPRINT(RT_DEBUG_TRACE,
+				DBGPRINT(RT_DEBUG_ERROR,
 					 ("Set UDP port v4:%d\n", udp_cfg.UdpPortV4[i]));
 			}
 		}
@@ -3667,7 +3569,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 		udp_cfg.UdpPortCountV6 = (ad->WOW_Cfg.UdpPortCntV6 > WOW_MAX_PORT_NUM_UDPV6) ?
 		    WOW_MAX_PORT_NUM_UDPV6 : ad->WOW_Cfg.UdpPortCntV6;
 		if (udp_cfg.UdpPortCountV6 != 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
+			DBGPRINT(RT_DEBUG_ERROR,
 				 ("WOW UDPv6 port count=:%d\n", udp_cfg.UdpPortCountV6));
 			for (i = 0; i < udp_cfg.UdpPortCountV6; i++) {
 				if (ad->WOW_Cfg.UdpPortV6[i] == 0) {
@@ -3740,7 +3642,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 			DBGPRINT(RT_DEBUG_ERROR, ("WOW send command offload ARP fail\n"));
 			goto error;
 		}
-		DBGPRINT(RT_DEBUG_TRACE, ("ARP IP:[%d.%d.%d.%d]\n",
+		DBGPRINT(RT_DEBUG_ERROR, ("ARP IP:[%d.%d.%d.%d]\n",
 					  offload_arp_cfg.IP[0], offload_arp_cfg.IP[1],
 					  offload_arp_cfg.IP[2], offload_arp_cfg.IP[3]));
 		RtmpOsMsDelay(1);
@@ -3813,8 +3715,8 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 
 	COPY_MAC_ADDR(infra_cfg.STA_MAC, ad->CurrentAddress);
 	COPY_MAC_ADDR(infra_cfg.AP_MAC, ad->CommonCfg.Bssid);
-	DBGPRINT(RT_DEBUG_TRACE, ("AP MAC ===>  %x:%x:%x:%x:%x:%x\n", PRINT_MAC(infra_cfg.AP_MAC)));
-	DBGPRINT(RT_DEBUG_TRACE, ("STA MAC ===>  %x:%x:%x:%x:%x:%x\n",
+	DBGPRINT(RT_DEBUG_ERROR, ("AP MAC ===>  %x:%x:%x:%x:%x:%x\n", PRINT_MAC(infra_cfg.AP_MAC)));
+	DBGPRINT(RT_DEBUG_ERROR, ("STA MAC ===>  %x:%x:%x:%x:%x:%x\n",
 				  PRINT_MAC(infra_cfg.STA_MAC)));
 
 	if (OPSTATUS_TEST_FLAG(ad, fOP_STATUS_MEDIA_STATE_CONNECTED)) {
@@ -3848,29 +3750,20 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 
 	RtmpOsMsDelay(1);
 
-	andes_wow_set_ssid_conf(ad);
-
 	/* Step 5 : Set WOW Wakeup Option */
 	var_len = sizeof(wow_param);
 
 	NdisZeroMemory(&wow_param, var_len);
 	/* WOW config */
 	wow_param.Parameter = WOW_WAKEUP;	/* Wakeup Option */
-	if (ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND) {
-		wow_param.Value = WOW_WAKEUP_BY_EVENT;
-	} else if (ad->WOW_Cfg.bInBand) {
+	if (ad->WOW_Cfg.bInBand) {
 		wow_param.Value = WOW_WAKEUP_BY_USB;
 	} else {
 		/* Make sure WoW GPIO 5 set to default value before suspend */
 		/* iwpriv wlan0 mac 120=100000 */
 		/* iwpriv wlan0 mac 1b8=FFFFFFDF */
 		/* iwpriv wlan0 mac 1bc=20 for high and 0 for low */
-		RTMP_IO_READ32(ad, 0x1bc, &Value);
-		if (ad->WOW_Cfg.bHighActive)	/* set WoW GPIO to low in suspend mode first */
-			Value &= ~(0x20);
-		else		/* set WoW GPIO to high in suspend mode first */
-			Value |= 0x20;
-		RTMP_IO_WRITE32(ad, 0x1bc, Value);
+		INT32 Value;
 
 		RTMP_IO_READ32(ad, 0x120, &Value);
 		Value |= 0x100000;
@@ -3879,6 +3772,13 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 		RTMP_IO_READ32(ad, 0x1b8, &Value);
 		Value &= ~(0x20);
 		RTMP_IO_WRITE32(ad, 0x1b8, Value);
+
+		RTMP_IO_READ32(ad, 0x1bc, &Value);
+		if (ad->WOW_Cfg.bHighActive)	/* set WoW GPIO to low in suspend mode first */
+			Value &= ~(0x20);
+		else		/* set WoW GPIO to high in suspend mode first */
+			Value |= 0x20;
+		RTMP_IO_WRITE32(ad, 0x1bc, Value);
 
 		wow_param.Value = WOW_WAKEUP_BY_GPIO;
 		/* GPIO_ACTION - Bit[31]: GPIO High/Low, Bit[15:0]: Duration */
@@ -3895,8 +3795,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 		}
 
 		RTMP_IO_READ32(ad, WLAN_FUN_CTRL, &Value);
-		DBGPRINT(RT_DEBUG_TRACE, ("\x1b[31m%s: 0x80 = %x\x1b[m\n"
-			, __func__, Value));
+		printk("\x1b[31m%s: 0x80 = %x\x1b[m\n", __func__, Value);
 		Value &= ~0x01010000;	/* GPIO0(ouput) --> 0(data) */
 		RTMP_IO_WRITE32(ad, WLAN_FUN_CTRL, Value);
 	}
@@ -3933,7 +3832,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 			wow_trig_cfg.Parameter = WOW_ALWAYS_TRIG;
 			wow_trig_cfg.Always_Trigger_Wakeup = ad->WOW_Cfg.bAlwaysTrigger;
 
-			DBGPRINT(RT_DEBUG_TRACE, ("%s: Always trigger wakeup\n", __func__));
+			DBGPRINT(RT_DEBUG_ERROR, ("%s: Always trigger wakeup\n", __func__));
 			msg = andes_alloc_cmd_msg(ad, var_len);
 
 			if (!msg) {
@@ -3968,13 +3867,12 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	/* WOW config */
 	wow_aid_channel.Parameter = WOW_AID_CHANNEL;	/* AID, CHANNEL assign */
 	wow_aid_channel.Aid = pEntry->Aid;	/* AID assigned from AP */
-	wow_aid_channel.Channel = INFRA_ON(ad)?ad->WOW_Cfg.CentralChannel:ad->hw_cfg.cent_ch;	/* Central Channel */
+	wow_aid_channel.Channel = ad->WOW_Cfg.CentralChannel;	/* Central Channel */
 	wow_aid_channel.extCH = ad->WOW_Cfg.ExtChSetting;	/* Extension Channel Setting */
 
-	DBGPRINT(RT_DEBUG_TRACE, ("aid = %d\n", wow_aid_channel.Aid));
-	DBGPRINT(RT_DEBUG_TRACE, ("central channel = %d, WOW:%d, hw:%d\n",
-		wow_aid_channel.Channel, ad->WOW_Cfg.CentralChannel, ad->hw_cfg.cent_ch));
-	DBGPRINT(RT_DEBUG_TRACE, ("extension channel setting = %d\n", wow_aid_channel.extCH));
+	DBGPRINT(RT_DEBUG_ERROR, ("aid = %d\n", wow_aid_channel.Aid));
+	DBGPRINT(RT_DEBUG_ERROR, ("central channel = %d\n", wow_aid_channel.Channel));
+	DBGPRINT(RT_DEBUG_ERROR, ("extension channel setting = %d\n", wow_aid_channel.extCH));
 
 	msg = andes_alloc_cmd_msg(ad, var_len);
 
@@ -4002,11 +3900,435 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	/* Step 5.3 : Enable wow power-saving */
 
 	andes_pwr_saving(ad, RADIO_ON_ADVANCE, 4, ad->MlmeAux.BeaconPeriod, 0, 0, 0);
-	DBGPRINT(RT_DEBUG_TRACE,
+	DBGPRINT(RT_DEBUG_ERROR,
 		 ("\x1b[31m Beacon interval =  %d\x1b[m\n", ad->MlmeAux.BeaconPeriod));
 
-	/* Perform HW CR register check before going into suspend */
-	andes_suspend_CR_setting(ad);
+
+	/* Suspend flow:
+	   Recommended by DE team:
+
+	   1. Check UDMA Tx EP4~EP9 is empty  (0x2240 ~ 0x2290, check BIT17==1)
+	   2. Wait UDMA Tx state idle (0x9100, check 0x7f00000==0)
+	   3. Check FCE Tx empty (0x0A30, check 0xFF==0)
+	   4. check FCE Tx2 empty (0x0A34, check 0xFF00==0)
+	   5. Disable MAC Tx (0x1004, set BIT2=0)
+	   6. Polling MAC Tx state to idle (0x1200, check BIT0==0)
+	   7. Disable MAC Rx (0x1004, set BIT3=0)
+	   8. Polling MAC Rx state to idle (0x1200, check BIT1==0)
+	   8.5.Check PBF Rx empty (0x0430, check 0xFF0000 ==0)
+	   9. Check FCE Rx1 empty (0x0A30, check 0xFF00 ==0)
+	   10. Check FCE Rx2 empty (0x0A34, check 0xFF == 0)
+	   11. Wait UDMA Rx state idle (0x9110, check 0x3F00==0)
+	   12. Check UDMA IN (Rx) EP4~EP5 empty (0x2140 & 0x2150, check BIT24==1)
+	 */
+
+#define WAIT_EMPTY_RETRY_COUNT		(200)
+#define WAIT_EMPTY_DELAY_TIME_US	(1000)	/* in micro-second */
+
+	/* ------------------------------------------------------------
+	   1.Check UDMA Tx EP4~EP9 is empty  (0x2240 ~ 0x2290, check BIT17==1)
+	   --------------------------------------------------------------- */
+	/* Wait UDMA EP4 Tx is Empty  */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x2240, &Value);
+
+		/* if UDMA EP4 is Empty */
+		if ((Value & BIT17) == 1) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP4 Tx empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP4 Tx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: UDMA EP4-TX Not Empty!!! (seems not a problem though)\n",
+				  __func__));
+	}
+
+	/* Wait UDMA EP5 Tx is Empty  */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x2250, &Value);
+
+		/* if UDMA EP5 is Empty */
+		if ((Value & BIT17) == 1) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP5 Tx empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP5 Tx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: UDMA EP5-TX Not Empty!!!\n",
+				  __func__));
+	}
+
+	/* Wait UDMA EP6 Tx is Empty  */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x2260, &Value);
+
+		/* if UDMA EP6 is Empty F */
+		if ((Value & BIT17) == 1) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP6 Tx empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP6 Tx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: UDMA EP6-TX Not Empty!!!\n",
+				  __func__));
+	}
+
+	/* Wait UDMA EP7 Tx is Empty  */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x2270, &Value);
+
+		/* if UDMA EP7 is Empty */
+		if ((Value & BIT17) == 1) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP7 Tx empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP7 Tx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: UDMA EP7-TX Not Empty!!!\n",
+				  __func__));
+	}
+
+	/* Wait UDMA EP8 Tx is Empty  */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x2280, &Value);
+
+		/* if UDMA EP8 is Empty */
+		if ((Value & BIT17) == 1) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP8 Tx empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP8 Tx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: UDMA EP8-TX Not Empty!!!\n",
+				  __func__));
+	}
+
+	/* Wait UDMA EP9 Tx is Empty */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x2290, &Value);
+
+		/* if UDMA EP9 is Empty */
+		if ((Value & BIT17) == 1) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP9 Tx empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP9 Tx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: UDMA EP9-TX Not Empty!!!\n",
+				  __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   2.Wait UDMA Tx state idle (0x9100, check 0x7f00000==0)
+	   --------------------------------------------------------------- */
+	/* Wait UDMA Tx State Machine idle      */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x9100, &Value);
+
+		/* if UDMA Tx State Machine is idle */
+		if ((Value & 0x7F00000) == 0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA Tx empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA Idle\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT
+		    && ((Value & 0x7F00000) != 0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: Wait UDMA Idle failed!!!\n",
+				  __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   3.Check FCE Tx1 empty (0x0A30, check 0xFF==0)
+	   --------------------------------------------------------------- */
+	/* Wait FCE Tx1 Empty */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		RTUSBReadMACRegister(ad, 0x0A30, &Value);
+
+		/* if FCE Tx is Empty */
+		if ((Value & 0xFF) == 0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting FCE Tx1 empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait FCE tx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF) != 0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: FCE Tx1(0x0A30) Not Empty!!!\n",
+				  __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   4.Check FCE Tx2 empty (0x0A34, check 0xFF00==0)
+	   --------------------------------------------------------------- */
+	/* Wait FCE Tx2 Empty */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		RTUSBReadMACRegister(ad, 0x0A34, &Value);
+
+		/* if FCE Tx 2 is Empty */
+		if ((Value & 0xFF00) == 0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting FCE Tx2 empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait FCE tx 2 Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF00) != 0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: FCE Tx2(0x0A34) Not Empty!!!\n",
+				  __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   5.Disable MAC Tx (0x1004, set BIT2=0)
+	   --------------------------------------------------------------- */
+	DBGPRINT(RT_DEBUG_ERROR, ("%s: Disable MAC Tx\n", __func__));
+	/* Disable MAC Tx */
+	RTMP_IO_READ32(ad, MAC_SYS_CTRL, &Value);
+	Value &= (~BIT2);
+	RTMP_IO_WRITE32(ad, MAC_SYS_CTRL, Value);
+
+	/* ------------------------------------------------------------
+	   6.Polling MAC Tx state to idle (0x1200, check BIT0==0)
+	   --------------------------------------------------------------- */
+	/* Polling MAC Tx status */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		RTMP_IO_READ32(ad, MAC_STATUS_CFG, &MacCsr12);
+
+		/* if MAC is idle */
+		if ((MacCsr12 & BIT0) == 0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting MAC Tx idle\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait mac tx idle\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((MacCsr12 & BIT0) != 0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: Wait MAC Tx Idle Failed!!!\n",
+				  __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   7.Disable MAC Rx (0x1004, set BIT3=0)
+	   --------------------------------------------------------------- */
+	DBGPRINT(RT_DEBUG_ERROR, ("%s: Disable MAC Rx\n", __func__));
+	/* Disable MAC Rx */
+	RTMP_IO_READ32(ad, MAC_SYS_CTRL, &Value);
+	Value &= (~BIT3);
+	RTMP_IO_WRITE32(ad, MAC_SYS_CTRL, Value);
+
+	/* ------------------------------------------------------------
+	   8.Polling MAC Rx state to idle (0x1200, check BIT1==0)
+	   --------------------------------------------------------------- */
+	/* polling MAC Rx status */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		RTMP_IO_READ32(ad, MAC_STATUS_CFG, &MacCsr12);
+
+		/* if MAC is idle */
+		if ((MacCsr12 & BIT1) == 0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting MAC Rx idle\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait mac rx idle\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((MacCsr12 & BIT1) != 0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: Wait MAC Rx idle failed!!!\n",
+				  __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   8.5.Check PBF Rx empty (0x0430, check 0xFF0000 ==0)
+	   --------------------------------------------------------------- */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x41, 0x0430, &MacCsr12);
+
+		/* if MAC is idle */
+		if ((MacCsr12 & 0xFF0000) == 0x0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting PBF Rx empty\n",
+				  __func__, count));
+			break;
+		}
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT
+		    && ((MacCsr12 & 0xFF0000) != 0x0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: Fail to wait PBF Rx empty!!!\n",
+				  __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   9.Check FCE Rx1 empty (0x0A30, check 0xFF00 ==0)
+	   --------------------------------------------------------------- */
+	/* Wait FCE Rx Empty */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		RTUSBReadMACRegister(ad, 0x0A30, &Value);
+
+		/* if FCE Rx is Empty */
+		if ((Value & 0xFF00) == 0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting FCE Rx1 queue empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait FCE rx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF00) != 0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: FCE Rx1 Not Empty!!!\n", __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   10.Check FCE Rx2 empty (0x0A34, check 0xFF == 0)
+	   --------------------------------------------------------------- */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		RTUSBReadMACRegister(ad, 0x0A34, &Value);
+
+		/* if FCE Rx 2 is Empty */
+		if ((Value & 0xFF) == 0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP2 Rx queue empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait FCE rx 2 Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF) != 0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: FCE Rx2 Not Empty!!!\n", __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   11.Wait UDMA Rx state idle (0x9110, check 0x3F00==0)
+	   --------------------------------------------------------------- */
+	/* Wait UDMA Rx State Machine idle      */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x9110, &Value);
+
+		/* if UDMA Rx State Machine is idle */
+		if ((Value & 0x3F00) == 0) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP3 Rx empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA Rx idle\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0x3F00) != 0))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: Wait UDMA Rx Idle failed!!!\n",
+				  __func__));
+	}
+
+	/* ------------------------------------------------------------
+	   12.Check UDMA IN (Rx) EP4~EP5 empty (0x2140 & 0x2150, check BIT24==1)
+	   --------------------------------------------------------------- */
+	/* Wait UDMA EP4 IN Empty  */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x2140, &Value);
+
+		/* if UDMA Rx State Machine is idle */
+		if ((Value & BIT24) == 1) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP4 Rx queue empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP4 Rx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT24) != 1))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: UDMA EP4-IN Not Empty!!!\n",
+				  __func__));
+	}
+
+	/* Wait UDMA EP5 IN Empty  */
+	count = 0;
+	while (count < WAIT_EMPTY_RETRY_COUNT) {
+		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US);	/* 1 ms */
+		read_reg(ad, 0x40, 0x2150, &Value);
+
+		/* if UDMA Rx State Machine is idle */
+		if ((Value & BIT24) == 1) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: %dms for waiting UDMA EP5 Rx queue empty\n",
+				  __func__, count));
+			break;
+		}
+		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP5 Rx Empty\n")); */
+		count++;
+		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT24) != 1))
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s: UDMA EP5-IN Not Empty!!!\n",
+				  __func__));
+	}
 
 	/* Dump register value before suspend */
 	/* Set_Register_Dump(ad, NULL); */
@@ -4018,7 +4340,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	/* WOW config */
 	wow_param.Parameter = WOW_TRAFFIC;	/* Traffic switch */
 	wow_param.Value = WOW_PKT_TO_ANDES;	/* incoming packet to FW */
-	DBGPRINT(RT_DEBUG_TRACE, ("%s: Request traffic switch to FW\n", __func__));
+	DBGPRINT(RT_DEBUG_ERROR, ("%s: Request traffic switch to FW\n", __func__));
 	msg = andes_alloc_cmd_msg(ad, var_len);
 
 	if (!msg) {
@@ -4026,7 +4348,7 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 		goto error;
 	}
 	/* andes_init_cmd_msg(msg, CMD_WOW_FEATURE, TRUE, 0, TRUE, FALSE, 0, NULL, NULL); */
-	andes_init_cmd_msg(msg, CMD_WOW_FEATURE, TRUE, TRAFFIC_SWITCH_COMMAND_TIMEOUT, TRUE, TRUE, 8,
+	andes_init_cmd_msg(msg, CMD_WOW_FEATURE, TRUE, 0, TRUE, TRUE, 8,
 			   (char *)&cmdCbk, andes_traffic_switch_callback);
 
 	/* WOW config */
@@ -4058,7 +4380,6 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	}
 
 	/* Dump register value before suspend */
-
 	Set_Register_Dump(ad, 0);
 
 	ad->WOW_Cfg.bInSuspendMode = WOW_SUSPEND_COMPLETE;
@@ -4067,8 +4388,6 @@ int andes_wow_enable(struct _RTMP_ADAPTER *ad)
 	RTMP_SET_SUSPEND_FLAG(ad, fRTMP_ADAPTER_SUSPEND_STATE_SUSPENDED);
 	RTMP_SET_FLAG(ad, fRTMP_ADAPTER_IDLE_RADIO_OFF);
 
-	if (ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND)
-		RTDebugLevel = log_lvl_bk;
 error:
 	return ret;
 }
@@ -4085,28 +4404,53 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 	UINT32 Value;
 	u32 *data = NULL;
 	int count = 0, ret = 0;
+
 	unsigned int cmdCbk = 0;
-	UINT32 reg_val = 0;
-	ULONG log_lvl_bk = 0;
+
 #if (defined(P2P_SUPPORT) || defined(RT_CFG80211_P2P_CONCURRENT_DEVICE)) && defined(WOW_STA_MODE)
 	PUCHAR pP2PBssid = NULL;
 	UINT32 Addr4;
 	UINT32 regValue;
 #endif /* endif */
 
-	if ((ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND)
-		&& (RTDebugLevel > RT_DEBUG_TRACE)) {
-		log_lvl_bk = RTDebugLevel;
-		RTDebugLevel = RT_DEBUG_ERROR;
-	}
-
 	DBGPRINT(RT_DEBUG_TRACE, ("%s:\n", __func__));
 	ad->WOW_Cfg.bInSuspendMode = WOW_NOT_IN_SUSPEND;
 	DBGPRINT(RT_DEBUG_TRACE, ("bInSuspendMode=  %d\n", ad->WOW_Cfg.bInSuspendMode));
 
 	/* Dump Register Value before WoW Disable */
-	if (log_lvl_bk == RT_DEBUG_TRACE)
-		Set_Register_Dump(ad, 0);
+	Set_Register_Dump(ad, 0);
+
+#if (defined(P2P_SUPPORT) || defined(RT_CFG80211_P2P_CONCURRENT_DEVICE)) && defined(WOW_STA_MODE)
+	/*
+	   The BSSID is set to MAC 0x1010 & 0x1014.
+	   If P2P_SUPPORT is enabled, then the BSSID would be set to P2P's MAC address but not AP's MAC address.
+	   It would cause FW fail to decrypt the broadcast packet from AP due to the BSSID is not set to AP's MAC address.
+	   Therefore, before entering suspend, change the BSSID from P2P's MAC to AP's MAC can avoid this issue.
+	   And change back to P2P's MAC after resume.
+	 */
+	pP2PBssid = &ad->CurrentAddress[0];
+
+	Addr4 = (UINT32) (pP2PBssid[0]) |
+	    (UINT32) (pP2PBssid[1] << 8) |
+	    (UINT32) (pP2PBssid[2] << 16) | (UINT32) (pP2PBssid[3] << 24);
+	RTMP_IO_WRITE32(ad, MAC_BSSID_DW0, Addr4);
+
+	Addr4 = 0;
+
+	/* always one BSSID in STA mode */
+	Addr4 = (UINT32) (pP2PBssid[4]) | (ULONG) (pP2PBssid[5] << 8);
+
+	RTMP_IO_WRITE32(ad, MAC_BSSID_DW1, Addr4);
+
+	RTMP_IO_READ32(ad, MAC_BSSID_DW1, &regValue);
+	regValue &= 0x0000FFFF;
+	regValue |= (1 << 16);
+	/*      set as 0/1 bit-21 of MAC_BSSID_DW1(offset: 0x1014)
+	   to disable/enable the new MAC address assignment.  */
+	if (ad->chipCap.MBSSIDMode == MBSSID_MODE1)
+		regValue |= (1 << 21);
+	RTMP_IO_WRITE32(ad, MAC_BSSID_DW1, regValue);
+#endif /* endif */
 
 	/* 11/27 commented by FW member:
 	   Driver does not need to stop MAC Tx/Rx when resumed.
@@ -4115,7 +4459,22 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 	   MAC Tx/Rx.
 	   So we disable the following code block that was trying to diable MAC T/R.
 	 */
-	andes_resume_CR_setting(ad, WOW_RESUME_TYPE);
+
+	/* Reset Driver Tx/Rx Info */
+	reset_TxRx_Info(ad);
+
+	/* Start Bulk-In Routine for command response */
+	usb_rx_cmd_msgs_receive(ad);
+
+	/*
+	   Clean BulkIn Reset flag.
+	   This makes Bulk-out data able to be send from Host to Device.
+	   Check out RTUSBBulkOutDataPacket function.
+	 */
+	RTMP_CLEAR_FLAG(ad, fRTMP_ADAPTER_IDLE_RADIO_OFF);
+
+	/* For MT76x2 USB IP Toggle Error Issue */
+	andes_send_dummy_bulkout(ad);
 
 	/* Step 1: Set WOW feature disable */
 	var_len = sizeof(wow_param);
@@ -4132,7 +4491,7 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 		goto error;
 	}
 
-	andes_init_cmd_msg(msg, CMD_WOW_FEATURE, TRUE, TRAFFIC_SWITCH_COMMAND_TIMEOUT, TRUE, TRUE, 0, NULL, NULL);
+	andes_init_cmd_msg(msg, CMD_WOW_FEATURE, FALSE, 0, TRUE, FALSE, 0, NULL, NULL);
 	/* WOW config */
 	data = (PUINT32) & wow_param;
 	for (i = 0; i < (var_len / 4); i++) {
@@ -4154,7 +4513,7 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 	/* WOW config */
 	wow_param.Parameter = WOW_TRAFFIC;
 	wow_param.Value = WOW_PKT_TO_HOST;
-	DBGPRINT(RT_DEBUG_TRACE, ("%s: Request traffic switch to Host\n", __func__));
+	DBGPRINT(RT_DEBUG_ERROR, ("%s: Request traffic switch to Host\n", __func__));
 
 	msg = andes_alloc_cmd_msg(ad, var_len);
 
@@ -4163,7 +4522,7 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 		goto error;
 	}
 
-	andes_init_cmd_msg(msg, CMD_WOW_FEATURE, TRUE, TRAFFIC_SWITCH_COMMAND_TIMEOUT, TRUE, TRUE, 8,
+	andes_init_cmd_msg(msg, CMD_WOW_FEATURE, TRUE, 0, TRUE, TRUE, 8,
 			   (char *)&cmdCbk, andes_traffic_switch_callback);
 	/* andes_init_cmd_msg(msg, CMD_WOW_FEATURE, TRUE, 0, TRUE, TRUE, 0, NULL, NULL); */
 	/* WOW config */
@@ -4180,7 +4539,7 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 	}
 #define WAIT_RETRY_COUNT 500
 #define WAIT_DELAY_TIME_US  (1000)	/* in micro-second */
-	DBGPRINT(RT_DEBUG_TRACE, ("Restore MAC Tx/Rx by Host Driver\n"));
+	DBGPRINT(RT_DEBUG_ERROR, ("Restore MAC Tx/Rx by Host Driver\n"));
 
 	/* Step 3 : Restore MAC TX/RX */
 	RTMP_IO_READ32(ad, MAC_SYS_CTRL, &Value);
@@ -4195,7 +4554,7 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 
 	/* restore hardware remote wakeup flag */
 	RTMP_IO_READ32(ad, WLAN_FUN_CTRL, &Value);
-	DBGPRINT(RT_DEBUG_TRACE, ("%s: MAC:0x80 %08x\n", __func__, Value));
+	DBGPRINT(RT_DEBUG_ERROR, ("%s: MAC:0x80 %08x\n", __func__, Value));
 	Value &= ~0x80;
 	RTMP_IO_WRITE32(ad, WLAN_FUN_CTRL, Value);
 
@@ -4203,14 +4562,14 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 /* INT32 Value; */
 
 		RTMP_IO_READ32(ad, WLAN_FUN_CTRL, &Value);
-		DBGPRINT(RT_DEBUG_TRACE, ("%s: 0x80 = %x\n", __func__, Value));
+		DBGPRINT(RT_DEBUG_ERROR, ("%s: 0x80 = %x\n", __func__, Value));
 		Value &= ~0x01010000;	/* GPIO0(ouput) --> 0(data) */
 		RTMP_IO_WRITE32(ad, WLAN_FUN_CTRL, Value);
 	}
 #if (defined(P2P_SUPPORT) || defined(RT_CFG80211_P2P_CONCURRENT_DEVICE))
 	if (ad->cfg80211_ctrl.FlgCfg80211Scanning == TRUE ||
 	    RTMP_TEST_FLAG(ad, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) {
-		CFG80211DBG(RT_DEBUG_TRACE, ("[%s] Clear ongoing scan\n", __func__));
+		CFG80211DBG(RT_DEBUG_ERROR, ("[%s] Clear ongoing scan\n", __func__));
 		CFG80211DRV_OpsScanInLinkDownAction(ad);
 	}
 #endif /* endif */
@@ -4235,32 +4594,29 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 		DBGPRINT(RT_DEBUG_ERROR, ("WOW query buffered packet fail\n"));
 		goto error;
 	}
-	DBGPRINT(RT_DEBUG_TRACE, ("%s: Get buffered packet\n", __func__));
+	DBGPRINT(RT_DEBUG_ERROR, ("%s: Get buffered packet\n", __func__));
 #endif /* WOW_BUF_PKT_SUPPORT */
+	/* Make sure WoW GPIO 5 pull back to default value after resume */
+	/* iwpriv wlan0 mac 120=100000 */
+	/* iwpriv wlan0 mac 1b8=FFFFFFDF */
+	/* iwpriv wlan0 mac 1bc=20 for high and 0 for low */
+	RTMP_IO_READ32(ad, 0x120, &Value);
+	Value |= 0x100000;
+	RTMP_IO_WRITE32(ad, 0x120, Value);
 
-	if (!(ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND)) {
-		/* Make sure WoW GPIO 5 pull back to default value after resume */
-		/* iwpriv wlan0 mac 120=100000 */
-		/* iwpriv wlan0 mac 1b8=FFFFFFDF */
-		/* iwpriv wlan0 mac 1bc=20 for high and 0 for low */
-		RTMP_IO_READ32(ad, 0x120, &Value);
-		Value |= 0x100000;
-		RTMP_IO_WRITE32(ad, 0x120, Value);
+	RTMP_IO_READ32(ad, 0x1b8, &Value);
+	Value &= ~(0x20);
+	RTMP_IO_WRITE32(ad, 0x1b8, Value);
 
-		RTMP_IO_READ32(ad, 0x1b8, &Value);
+	RTMP_IO_READ32(ad, 0x1bc, &Value);
+	if (ad->WOW_Cfg.bHighActive)	/* Revert WoW GPIO back to low after resume */
 		Value &= ~(0x20);
-		RTMP_IO_WRITE32(ad, 0x1b8, Value);
+	else			/* Revert WoW GPIO back to high after resume */
+		Value |= 0x20;
+	RTMP_IO_WRITE32(ad, 0x1bc, Value);
 
-		RTMP_IO_READ32(ad, 0x1bc, &Value);
-		if (ad->WOW_Cfg.bHighActive)	/* Revert WoW GPIO back to low after resume */
-			Value &= ~(0x20);
-		else			/* Revert WoW GPIO back to high after resume */
-			Value |= 0x20;
-		RTMP_IO_WRITE32(ad, 0x1bc, Value);
-	}
 	/* Dump Register Value After WoW Disable */
-	if (log_lvl_bk == RT_DEBUG_TRACE)
-		Set_Register_Dump(ad, 0);
+	Set_Register_Dump(ad, 0);
 
 	/* MAC Tx/Rx Status Checking */
 	count = 0;
@@ -4301,7 +4657,7 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 			/* TEMP SENSOR */
 			CHIP_CALIBRATION(ad, TEMP_SENSOR_CALIBRATION_7662, 0x00);
 			RTMP_IO_READ32(ad, WLAN_FUN_CTRL, &Value);
-			DBGPRINT(RT_DEBUG_TRACE, ("%s: 0x80 = %x\n", __func__, Value));
+			DBGPRINT(RT_DEBUG_OFF, ("%s: 0x80 = %x\n", __func__, Value));
 		}
 
 		if ((Value & BIT0) == BIT0)
@@ -4345,65 +4701,12 @@ int andes_wow_disable(struct _RTMP_ADAPTER *ad)
 				  __func__));
 	}
 
-	/* Compensate last Beacon Rx time */
-	{
-		ULONG jiff_now = 0;
-		NdisGetSystemUpTime(&jiff_now);
-		MlmeCompensateLastBeaconRxTime(ad, jiff_now);
-	}
-
-#if (defined(P2P_SUPPORT) || defined(RT_CFG80211_P2P_CONCURRENT_DEVICE)) && defined(WOW_STA_MODE)
-	/*
-	   The BSSID is set to MAC 0x1010 & 0x1014.
-	   If P2P_SUPPORT is enabled, then the BSSID would be set to P2P's MAC address but not AP's MAC address.
-	   It would cause FW fail to decrypt the broadcast packet from AP due to the BSSID is not set to AP's MAC addr
-	   Therefore, before entering suspend, change the BSSID from P2P's MAC to AP's MAC can avoid this issue.
-	   And change back to P2P's MAC after resume.
-	 */
-	pP2PBssid = &ad->CurrentAddress[0];
-
-	Addr4 = (UINT32) (pP2PBssid[0]) |
-	    (UINT32) (pP2PBssid[1] << 8) |
-	    (UINT32) (pP2PBssid[2] << 16) | (UINT32) (pP2PBssid[3] << 24);
-	RTMP_IO_WRITE32(ad, MAC_BSSID_DW0, Addr4);
-	Addr4 = 0;
-
-	/* always one BSSID in STA mode */
-	Addr4 = (UINT32) (pP2PBssid[4]) | (UINT32) (pP2PBssid[5] << 8);
-
-	RTMP_IO_WRITE32(ad, MAC_BSSID_DW1, Addr4);
-	RTMP_IO_READ32(ad, MAC_BSSID_DW1, &regValue);
-	regValue &= 0x0000FFFF;
-	regValue |= (1 << 16);
-	/*      set as 0/1 bit-21 of MAC_BSSID_DW1(offset: 0x1014)
-	   to disable/enable the new MAC address assignment.  */
-	if (ad->chipCap.MBSSIDMode == MBSSID_MODE1)
-		regValue |= (1 << 21);
-	RTMP_IO_WRITE32(ad, MAC_BSSID_DW1, regValue);
-	DBGPRINT(RT_DEBUG_TRACE, ("\n\nMAC CR check\n"));
-	reg_val = 0;
-	RTMP_IO_READ32(ad, MAC_BSSID_DW0, &reg_val);
-	DBGPRINT(RT_DEBUG_TRACE, ("MAC_BSSID_DW0:%08x\n", reg_val));
-	reg_val = 0;
-	RTMP_IO_READ32(ad, MAC_BSSID_DW1, &reg_val);
-	DBGPRINT(RT_DEBUG_TRACE, ("MAC_BSSID_DW1:%08x\n", reg_val));
-	DBGPRINT(RT_DEBUG_TRACE, ("MAC CR check end\n\n"));
-#endif /* endif */
-	/* wow::switch back to 2x2 */
-	if (ad->WOW_Cfg.extMode & WOW_1X1_ENABLE) {
-		PWR_SAVING_OP(ad, RADIO_OFF, 1, 0, 0, 0, 0);
-		RtmpOsMsDelay(1);
-		PWR_SAVING_OP(ad, RADIO_ON, 1, 0, 0, 0, 0);
-		DBGPRINT(RT_DEBUG_ERROR, ("%s, switch back to 2x2 from 1x1\n", __func__));
-	}
 error:
 #ifdef NEW_WOW_SUPPORT
 	RTMP_CLEAR_SUSPEND_FLAG(ad, fRTMP_ADAPTER_SUSPEND_STATE_SUSPENDING);
 	RTMP_CLEAR_SUSPEND_FLAG(ad, fRTMP_ADAPTER_SUSPEND_STATE_SUSPENDED);
 #endif /* NEW_WOW_SUPPORT */
 
-	if (ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND)
-		RTDebugLevel = log_lvl_bk;
 	return ret;
 }
 #endif /* endif */
@@ -4909,437 +5212,3 @@ void andes_usb_fw_init(RTMP_ADAPTER *ad)
 	PWR_SAVING_OP(ad, RADIO_ON, 0, 0, 0, 0, 0);
 }
 #endif /* RTMP_USB_SUPPORT */
-
-int andes_check_tx_rx_disable(struct _RTMP_ADAPTER *ad)
-{
-	UINT32 Value = 0;
-	RTMP_IO_READ32(ad, MAC_SYS_CTRL, &Value);
-
-	if ((Value & BIT2) || (Value & BIT3))
-		return 0;
-	else
-		return 1;
-}
-
-void andes_suspend_CR_setting(struct _RTMP_ADAPTER *ad)
-{
-	UINT32 Value = 0;
-	UINT32 count = 0;
-
-	/* Suspend flow:
-		Recommended by DE team:
-
-		1. Check UDMA Tx EP4~EP9 is empty  (0x2240 ~ 0x2290, check BIT17==1)
-		2. Wait UDMA Tx state idle (0x9100, check 0x7f00000==0)
-		3. Check FCE Tx empty (0x0A30, check 0xFF==0)
-		4. check FCE Tx2 empty (0x0A34, check 0xFF00==0)
-		5. Disable MAC Tx (0x1004, set BIT2=0)
-		6. Polling MAC Tx state to idle (0x1200, check BIT0==0)
-		7. Disable MAC Rx (0x1004, set BIT3=0)
-		8. Polling MAC Rx state to idle (0x1200, check BIT1==0)
-		8.5.Check PBF Rx empty (0x0430, check 0xFF0000 ==0)
-		9. Check FCE Rx1 empty (0x0A30, check 0xFF00 ==0)
-		10. Check FCE Rx2 empty (0x0A34, check 0xFF == 0)
-		11. Wait UDMA Rx state idle (0x9110, check 0x3F00==0)
-		12. Check UDMA IN (Rx) EP4~EP5 empty (0x2140 & 0x2150, check BIT24==1)
-	*/
-
-	/* ------------------------------------------------------------
-		1.Check UDMA Tx EP4~EP9 is empty  (0x2240 ~ 0x2290, check BIT17==1)
-	---------------------------------------------------------------*/
-	/* Wait UDMA EP4 Tx is Empty  */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms*/
-		read_reg(ad, 0x40, 0x2240, &Value);
-
-		/* if UDMA EP4 is Empty */
-		if ((Value & BIT17) == 1) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP4 Tx empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP4 Tx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
-			DBGPRINT(RT_DEBUG_ERROR,
-				 ("%s: UDMA EP4-TX Not Empty!!! (seems not a problem though)\n",
-				  __func__));
-	}
-
-	/* Wait UDMA EP5 Tx is Empty  */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		read_reg(ad, 0x40, 0x2250, &Value);
-
-		/* if UDMA EP5 is Empty */
-		if ((Value & BIT17) == 1) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP5 Tx empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP5 Tx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: UDMA EP5-TX Not Empty!!!\n",  __func__));
-	}
-
-	/* Wait UDMA EP6 Tx is Empty  */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		read_reg(ad, 0x40, 0x2260, &Value);
-
-		/* if UDMA EP6 is Empty F*/
-		if ((Value & BIT17) == 1) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP6 Tx empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP6 Tx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: UDMA EP6-TX Not Empty!!!\n",  __func__));
-	}
-
-	/* Wait UDMA EP7 Tx is Empty  */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		read_reg(ad, 0x40, 0x2270, &Value);
-
-		/* if UDMA EP7 is Empty */
-		if ((Value & BIT17) == 1) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP7 Tx empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP7 Tx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: UDMA EP7-TX Not Empty!!!\n",  __func__));
-	}
-
-	/* Wait UDMA EP8 Tx is Empty  */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		read_reg(ad, 0x40, 0x2280, &Value);
-
-		/* if UDMA EP8 is Empty */
-		if ((Value & BIT17) == 1) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP8 Tx empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP8 Tx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: UDMA EP8-TX Not Empty!!!\n",  __func__));
-	}
-
-	/* Wait UDMA EP9 Tx is Empty */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		read_reg(ad, 0x40, 0x2290, &Value);
-
-		/* if UDMA EP9 is Empty */
-		if ((Value & BIT17) == 1) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP9 Tx empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP9 Tx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT17) != 1))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: UDMA EP9-TX Not Empty!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		2.Wait UDMA Tx state idle (0x9100, check 0x7f00000==0)
-	---------------------------------------------------------------*/
-	/* Wait UDMA Tx State Machine idle	*/
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		read_reg(ad, 0x40, 0x9100, &Value);
-
-		/* if UDMA Tx State Machine is idle*/
-		if ((Value & 0x7F00000) == 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA Tx empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA Idle\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0x7F00000) != 0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: Wait UDMA Idle failed!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		3.Check FCE Tx1 empty (0x0A30, check 0xFF==0)
-	---------------------------------------------------------------*/
-	/* Wait FCE Tx1 Empty */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		RTUSBReadMACRegister(ad, 0x0A30, &Value);
-
-		/* if FCE Tx is Empty*/
-		if ((Value & 0xFF) == 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting FCE Tx1 empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait FCE tx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF) != 0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: FCE Tx1(0x0A30) Not Empty!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		4.Check FCE Tx2 empty (0x0A34, check 0xFF00==0)
-	--------------------------------------------------------------*/
-	/* Wait FCE Tx2 Empty */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		RTUSBReadMACRegister(ad, 0x0A34, &Value);
-
-		/* if FCE Tx 2 is Empty*/
-		if ((Value & 0xFF00) == 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting FCE Tx2 empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait FCE tx 2 Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF00) != 0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: FCE Tx2(0x0A34) Not Empty!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		5.Disable MAC Tx (0x1004, set BIT2=0)
-	---------------------------------------------------------------*/
-	DBGPRINT(RT_DEBUG_ERROR, ("%s: Disable MAC Tx\n",  __func__));
-	/* Disable MAC Tx */
-	RTMP_IO_READ32(ad, MAC_SYS_CTRL, &Value);
-	Value &= (~BIT2);
-	RTMP_IO_WRITE32(ad, MAC_SYS_CTRL, Value);
-
-	/* ------------------------------------------------------------
-		6.Polling MAC Tx state to idle (0x1200, check BIT0==0)
-	---------------------------------------------------------------*/
-	/* Polling MAC Tx status */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		RTMP_IO_READ32(ad, MAC_STATUS_CFG, &Value);
-
-		/* if MAC is idle*/
-		if ((Value & BIT0) == 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting MAC Tx idle\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait mac tx idle\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT0) != 0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: Wait MAC Tx Idle Failed!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		7.Disable MAC Rx (0x1004, set BIT3=0)
-	---------------------------------------------------------------*/
-	DBGPRINT(RT_DEBUG_TRACE, ("%s: Disable MAC Rx\n",  __func__));
-	/* Disable MAC Rx */
-	RTMP_IO_READ32(ad, MAC_SYS_CTRL, &Value);
-	Value &= (~BIT3);
-	RTMP_IO_WRITE32(ad, MAC_SYS_CTRL, Value);
-
-	/* ------------------------------------------------------------
-		8.Polling MAC Rx state to idle (0x1200, check BIT1==0)
-	---------------------------------------------------------------*/
-	/* polling MAC Rx status*/
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		RTMP_IO_READ32(ad, MAC_STATUS_CFG, &Value);
-
-		/* if MAC is idle*/
-		if ((Value & BIT1) == 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting MAC Rx idle\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait mac rx idle\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT1) != 0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: Wait MAC Rx idle failed!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		8.5.Check PBF Rx empty (0x0430, check 0xFF0000 ==0)
-	---------------------------------------------------------------*/
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		read_reg(ad, 0x41, 0x0430, &Value);
-
-		/* if MAC is idle*/
-		if ((Value & 0xFF0000) == 0x0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting PBF Rx empty\n", __func__, count));
-			break;
-		}
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF0000) != 0x0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: Fail to wait PBF Rx empty!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		9.Check FCE Rx1 empty (0x0A30, check 0xFF00 ==0)
-	---------------------------------------------------------------*/
-	/* Wait FCE Rx Empty */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		RTUSBReadMACRegister(ad, 0x0A30, &Value);
-
-		/* if FCE Rx is Empty*/
-		if ((Value & 0xFF00) == 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting FCE Rx1 queue empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait FCE rx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF00) != 0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: FCE Rx1 Not Empty!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		10.Check FCE Rx2 empty (0x0A34, check 0xFF == 0)
-	---------------------------------------------------------------*/
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		RTUSBReadMACRegister(ad, 0x0A34, &Value);
-
-		/* if FCE Rx 2 is Empty*/
-		if ((Value & 0xFF) == 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP2 Rx queue empty\n", __func__,
-				  count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait FCE rx 2 Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0xFF) != 0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: FCE Rx2 Not Empty!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		11.Wait UDMA Rx state idle (0x9110, check 0x3F00==0)
-	---------------------------------------------------------------*/
-	/* Wait UDMA Rx State Machine idle	*/
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms */
-		read_reg(ad, 0x40, 0x9110, &Value);
-
-		/* if UDMA Rx State Machine is idle*/
-		if ((Value & 0x3F00) == 0) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP3 Rx empty\n", __func__, count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA Rx idle\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & 0x3F00) != 0))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: Wait UDMA Rx Idle failed!!!\n",  __func__));
-	}
-
-	/* ------------------------------------------------------------
-		12.Check UDMA IN (Rx) EP4~EP5 empty (0x2140 & 0x2150, check BIT24==1)
-	---------------------------------------------------------------*/
-	/* Wait UDMA EP4 IN Empty  */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms*/
-		read_reg(ad, 0x40, 0x2140, &Value);
-
-		/* if UDMA Rx State Machine is idle*/
-		if ((Value & BIT24) == 1) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP4 Rx queue empty\n", __func__,
-				  count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP4 Rx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT24) != 1))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: UDMA EP4-IN Not Empty!!!\n",  __func__));
-	}
-
-	/* Wait UDMA EP5 IN Empty  */
-	count = 0;
-	while (count < WAIT_EMPTY_RETRY_COUNT) {
-		RtmpusecDelay(WAIT_EMPTY_DELAY_TIME_US); /* 1 ms*/
-		read_reg(ad, 0x40, 0x2150, &Value);
-
-		/* if UDMA Rx State Machine is idle*/
-		if ((Value & BIT24) == 1) {
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("%s: %dms for waiting UDMA EP5 Rx queue empty\n", __func__,
-				  count));
-			break;
-		}
-		/* DBGPRINT(RT_DEBUG_ERROR, ("wait UDMA EP5 Rx Empty\n")); */
-		count++;
-		if (count == WAIT_EMPTY_RETRY_COUNT && ((Value & BIT24) != 1))
-			DBGPRINT(RT_DEBUG_ERROR, ("%s: UDMA EP5-IN Not Empty!!!\n",  __func__));
-	}
-
-}
-
-void andes_resume_CR_setting(struct _RTMP_ADAPTER *ad, u8 type)
-{
-	/* Reset Driver Tx/Rx Info */
-	if (!(ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND)) {
-		DBGPRINT(RT_DEBUG_TRACE, ("%s,reset TxRx bulk\n", __func__));
-		reset_TxRx_Info(ad);
-	} else {
-		DBGPRINT(RT_DEBUG_TRACE,
-			("%s,Fake Suspend DO NOT reset TxRx bulk\n", __func__));
-	}
-
-	/* Start Bulk-In Routine for command response */
-	usb_rx_cmd_msgs_receive(ad);
-
-	/*
-		Clean BulkIn Reset flag.
-		This makes Bulk-out data able to be send from Host to Device.
-		Check out RTUSBBulkOutDataPacket function.
-	*/
-	RTMP_CLEAR_FLAG(ad, fRTMP_ADAPTER_IDLE_RADIO_OFF);
-
-	if (type == RADIO_OFF_TYPE) {
-#ifdef CONFIG_STA_SUPPORT
-		IF_DEV_CONFIG_OPMODE_ON_STA(ad) {
-			RTUSBBulkReceive(ad);
-		}
-#endif /* CONFIG_STA_SUPPORT */
-
-		RTMP_SET_FLAG(ad, fRTMP_ADAPTER_MCU_SEND_IN_BAND_CMD);
-	}
-
-	/* For MT76x2 USB IP Toggle Error Issue */
-#ifdef NEW_WOW_SUPPORT
-	if (!(ad->WOW_Cfg.extMode & WOW_FAKE_SUSPEND))
-		andes_send_dummy_bulkout(ad);
-#endif /* NEW_WOW_SUPPORT */
-
-}

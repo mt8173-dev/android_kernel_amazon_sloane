@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -29,8 +32,8 @@ UINT ScanStayTime(RTMP_ADAPTER *pAd, BOOLEAN bImprovedScan, UCHAR ScanType, UCHA
 	UINT stay_time = 0;
 	/* We need to shorten active scan time in order for WZC connect issue */
 	/* Chnage the channel scan time for CISCO stuff based on its IAPP announcement */
-	if (ScanType == FAST_SCAN_ACTIVE || (bImprovedScan && (ScanType != SCAN_PASSIVE)))
-		stay_time = pAd->MlmeAux.FastScanChannelTime;
+	if (ScanType == FAST_SCAN_ACTIVE)
+		stay_time = FAST_ACTIVE_SCAN_TIME;
 	else {		/* must be SCAN_PASSIVE or SCAN_ACTIVE */
 #ifdef CONFIG_AP_SUPPORT
 			if ((OpMode == OPMODE_AP) && (pAd->ApCfg.bAutoChannelAtBootup))
@@ -394,17 +397,6 @@ static INT scan_active(RTMP_ADAPTER *pAd, UCHAR OpMode, UCHAR ScanType)
 			FrameLen += Tmp;
 		}
 	}
-	if (OpMode == OPMODE_STA) {
-			ULONG Tmp;
-			UCHAR DsieLen;
-			DsieLen = 1;
-			MakeOutgoingFrame(frm_buf + FrameLen, &Tmp,
-					  1, &DsIe,
-					  1, &DsieLen,
-					  1, &pAd->MlmeAux.Channel, END_OF_ARGS);
-
-			FrameLen += Tmp;
-	}
 	if (WMODE_CAP_N(pAd->CommonCfg.PhyMode)) {
 		ULONG Tmp;
 		UCHAR HtLen;
@@ -606,6 +598,7 @@ static INT scan_active(RTMP_ADAPTER *pAd, UCHAR OpMode, UCHAR ScanType)
 #endif /* RT_CFG80211_SUPPORT */
 #endif /*CONFIG_STA_SUPPORT */
 
+
 	MiniportMMRequest(pAd, 0, frm_buf, FrameLen);
 
 #ifdef CONFIG_STA_SUPPORT
@@ -646,7 +639,7 @@ VOID ScanNextChannel(RTMP_ADAPTER *pAd, UCHAR OpMode)
 	RALINK_TIMER_STRUCT *sc_timer = NULL;
 	UINT stay_time = 0;
 	UINT scan_ch_cnt = SCAN_CHANNEL_COUNT;
-	TX_RTY_CFG_STRUC tx_rty_cfg = {.word = 0 };
+
 #ifdef RALINK_ATE
 	/* Nothing to do in ATE mode. */
 	if (ATE_ON(pAd))
@@ -667,50 +660,17 @@ VOID ScanNextChannel(RTMP_ADAPTER *pAd, UCHAR OpMode)
 #ifdef RT_CFG80211_SUPPORT
 	/* Since the Channel List is from Upper layer */
 	if (CFG80211DRV_OpsScanRunning(pAd))
-		pAd->MlmeAux.Channel = CFG80211DRV_OpsScanGetNextChannel(pAd, ScanPending);
-		if ((pAd->MlmeAux.Channel > 14) && RadarChannelCheck(pAd, pAd->MlmeAux.Channel)
-		&& (pAd->CommonCfg.bIEEE80211H == 1) && (!pAd->CommonCfg.bIEEE80211H_PASSIVE_SCAN)) {
-			DBGPRINT(RT_DEBUG_ERROR, ("%s, 80211H,do NOT do anything on DFS ch %u\n"
-				, __func__, pAd->MlmeAux.Channel));
-			pAd->Mlme.SyncMachine.CurrState = SCAN_LISTEN;
-			ScanTimeout(NULL, pAd, NULL, NULL);
-			return;
-		}
+		pAd->MlmeAux.Channel = CFG80211DRV_OpsScanGetNextChannel(pAd);
 #endif /* RT_CFG80211_SUPPORT */
 #endif /* CONFIG_STA_SUPPORT */
 	if ((pAd->MlmeAux.Channel == 0) || ScanPending) {
 		scan_ch_restore(pAd, OpMode);
-		AsicEnableBeacon(pAd);
-		RTMP_IO_READ32(pAd, TX_RTY_CFG, &tx_rty_cfg.word);
-		tx_rty_cfg.field.LongRtyLimit = 0x8;
-		tx_rty_cfg.field.ShortRtyLimit = 0xa;
-		RTMP_IO_WRITE32(pAd, TX_RTY_CFG, tx_rty_cfg.word);
-#ifdef ED_MONITOR
-		if (!pAd->ed_tx_stoped && !pAd->ed_chk && !pAd->ed_fix)
-#endif
-			Enable_netifQ(pAd);
 		/*only GO on*/
 		if (SCAN_ONLINE && (pAd->MlmeAux.Channel != 0) &&
 			RTMP_CFG80211_VIF_P2P_GO_ON(pAd) && CFG80211DRV_OpsScanRunning(pAd)) {
-			DBGPRINT(RT_DEBUG_TRACE, ("%s before wait %ld\n", __func__, pAd->MlmeAux.OpChannelTime));
-			OS_WAIT(pAd->MlmeAux.OpChannelTime);
-			DBGPRINT(RT_DEBUG_TRACE, ("%s after wait %ld\n", __func__, pAd->MlmeAux.OpChannelTime));
-		}
-		/* resume Improved Scanning */
-		if ((pAd->StaCfg.bImprovedScan) && (pAd->MlmeAux.Channel != 0) &&
-		    (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) &&
-		    (pAd->Mlme.SyncMachine.CurrState == SCAN_PENDING)) {
-			MLME_SCAN_REQ_STRUCT ScanReq;
-
-			pAd->StaCfg.LastScanTime = pAd->Mlme.Now32;
-
-			ScanParmFill(pAd, &ScanReq, pAd->MlmeAux.Ssid, pAd->MlmeAux.SsidLen, BSS_ANY,
-				pAd->MlmeAux.ScanType);
-			MlmeEnqueue(pAd, SYNC_STATE_MACHINE, MT2_MLME_SCAN_REQ,
-				    sizeof(MLME_SCAN_REQ_STRUCT), &ScanReq, 0);
-			RTMP_MLME_HANDLER(pAd);
-			DBGPRINT(RT_DEBUG_WARN,
-				("Resume for bImprovedScan, SCAN_PENDING\n"));
+			DBGPRINT(RT_DEBUG_TRACE, ("%s before wait %d\n", __func__, OP_CHANNEL_TIME));
+			OS_WAIT(OP_CHANNEL_TIME);
+			DBGPRINT(RT_DEBUG_TRACE, ("%s after wait %d\n", __func__, OP_CHANNEL_TIME));
 		}
 	}
 #ifdef RTMP_MAC_USB
@@ -722,8 +682,6 @@ VOID ScanNextChannel(RTMP_ADAPTER *pAd, UCHAR OpMode)
 #endif /* CONFIG_STA_SUPPORT */
 #endif /* RTMP_MAC_USB */
 	else {
-		UINT32 QPageCnt = 0;
-		UINT32 MacReg, MTxCycle;
 #ifdef CONFIG_STA_SUPPORT
 		if (OpMode == OPMODE_STA) {
 			/* BBP and RF are not accessible in PS mode, we has to wake them up first */
@@ -735,36 +693,6 @@ VOID ScanNextChannel(RTMP_ADAPTER *pAd, UCHAR OpMode)
 				RTMP_SET_PSM_BIT(pAd, PWR_ACTIVE);
 		}
 #endif /* CONFIG_STA_SUPPORT */
-		AsicDisableBeacon(pAd);
-		Disable_netifQ(pAd);
-		read_reg(pAd, 0x41, 0x0A30, &QPageCnt);
-		DBGPRINT(RT_DEBUG_TRACE, ("%s 0x41_0A30: 0x%x\n", __func__, QPageCnt));
-		read_reg(pAd, 0x41, 0x0438, &QPageCnt);
-		DBGPRINT(RT_DEBUG_TRACE, ("%s 0x41_0438: 0x%x\n", __func__, QPageCnt));
-
-		RTMP_IO_READ32(pAd, TX_RTY_CFG, &tx_rty_cfg.word);
-		tx_rty_cfg.field.LongRtyLimit = 0;
-		tx_rty_cfg.field.ShortRtyLimit = 0;
-		RTMP_IO_WRITE32(pAd, TX_RTY_CFG, tx_rty_cfg.word);
-		for (MTxCycle = 0; MTxCycle < 500; MTxCycle++) {
-			BOOLEAN bFree = TRUE;
-			RTMP_IO_READ32(pAd, 0x438, &MacReg);
-			if (MacReg != 0)
-				bFree = FALSE;
-			RTMP_IO_READ32(pAd, 0xa30, &MacReg);
-			if (MacReg & 0x000000FF)
-				bFree = FALSE;
-			if (bFree)
-				break;
-		}
-		if (MTxCycle >= 300) {
-			DBGPRINT(RT_DEBUG_ERROR, ("Check TxQ page count max\n"));
-			RTMP_IO_READ32(pAd, 0x0a30, &MacReg);
-			DBGPRINT(RT_DEBUG_TRACE, ("0x0a30 = 0x%08x\n", MacReg));
-			RTMP_IO_READ32(pAd, 0x438, &MacReg);
-			DBGPRINT(RT_DEBUG_TRACE, ("0x438 = 0x%08x\n", MacReg));
-		}
-		CFG80211DBG(RT_DEBUG_TRACE, ("80211> %s ==> MTxCycle(%d)\n", __func__, MTxCycle));
 
 		AsicSwitchChannel(pAd, pAd->MlmeAux.Channel, TRUE);
 		AsicLockChannel(pAd, pAd->MlmeAux.Channel);
@@ -772,11 +700,10 @@ VOID ScanNextChannel(RTMP_ADAPTER *pAd, UCHAR OpMode)
 #ifdef CONFIG_STA_SUPPORT
 		if (OpMode == OPMODE_STA) {
 			BOOLEAN bScanPassive = FALSE;
-			if ((pAd->CommonCfg.bIEEE80211H == 1)
-			    && RadarChannelCheck(pAd, pAd->MlmeAux.Channel)) {
-				bScanPassive = TRUE;
-				DBGPRINT(RT_DEBUG_TRACE, ("%s, 80211H, DFS passive scan on ch %u\n"
-					, __func__, pAd->MlmeAux.Channel));
+			if (pAd->MlmeAux.Channel > 14) {
+				if ((pAd->CommonCfg.bIEEE80211H == 1)
+				    && RadarChannelCheck(pAd, pAd->MlmeAux.Channel))
+					bScanPassive = TRUE;
 			}
 #ifdef CARRIER_DETECTION_SUPPORT
 			if (pAd->CommonCfg.CarrierDetect.Enable == TRUE)

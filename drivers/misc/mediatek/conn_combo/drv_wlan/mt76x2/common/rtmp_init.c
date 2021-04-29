@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -899,6 +902,9 @@ VOID NICReadEEPROMParameters(RTMP_ADAPTER *pAd, PSTRING mac_addr)
 				  pAd->CommonCfg.bSKUMode ? "Enable" : "Disable"));
 #endif /* SINGLE_SKU */
 
+#ifdef SINGLE_SKU_V2
+#endif /* SINGLE_SKU_V2 */
+
 #ifdef RTMP_EFUSE_SUPPORT
 	RtmpEfuseSupportCheck(pAd);
 #endif /* RTMP_EFUSE_SUPPORT */
@@ -1179,6 +1185,7 @@ VOID NICInitAsicFromEEPROM(RTMP_ADAPTER *pAd)
 	RTMP_CHIP_ASIC_INIT_TEMPERATURE_COMPENSATION(pAd);
 
 #ifdef RTMP_RF_RW_SUPPORT
+	/*Init RFRegisters after read RFIC type from EEPROM */
 	InitRFRegisters(pAd);
 #endif /* RTMP_RF_RW_SUPPORT */
 
@@ -1677,7 +1684,7 @@ NDIS_STATUS NICInitializeAsic(RTMP_ADAPTER *pAd, BOOLEAN bHardReset)
 #endif /* RT8592 */
 			/* for rt2860E and after, init TXOP_CTRL_CFG with 0x583f. This is for extension channel overlapping IOT. */
 		if ((pAd->MACVersion & 0xffff) != 0x0101)
-			RTMP_IO_WRITE32(pAd, TXOP_CTRL_CFG, 0x400583f);
+			RTMP_IO_WRITE32(pAd, TXOP_CTRL_CFG, 0x583f);
 	}
 #endif /* CONFIG_STA_SUPPORT */
 
@@ -2709,8 +2716,6 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 
 #endif /* RTMP_MAC_USB */
 
-	pAd->swChiperErrDumped = FALSE;
-	pAd->dbgLvlBackUp = RTDebugLevel;
 	for (key_index = 0; key_index < SHARE_KEY_NUM; key_index++) {
 		for (bss_index = 0; bss_index < MAX_MBSSID_NUM(pAd) + MAX_P2P_NUM; bss_index++) {
 			pAd->SharedKey[bss_index][key_index].KeyLen = 0;
@@ -2728,12 +2733,9 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 	pAd->bAutoTxAgcA = FALSE;	/* Default is OFF */
 	pAd->bAutoTxAgcG = FALSE;	/* Default is OFF */
 
-	pAd->profile_loaded = FALSE;
 #ifdef SINGLE_SKU_V2
 	pAd->sku_init_done = FALSE;
-	pAd->sku_loaded = FALSE;
 	pAd->tc_init_val = 0;
-	OS_NdisAllocateSpinLock(&pAd->sku_lock);
 #endif /* SINGLE_SKU_V2 */
 
 #if defined(RTMP_INTERNAL_TX_ALC) || defined(RTMP_TEMPERATURE_COMPENSATION)
@@ -2755,7 +2757,6 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 
 	/* Init timer for reset complete event */
 	pAd->CommonCfg.CentralChannel = 1;
-	pAd->CommonCfg.ChSwitchState = NONSWITCH;
 	pAd->bForcePrintTX = FALSE;
 	pAd->bForcePrintRX = FALSE;
 	pAd->bStaFifoTest = FALSE;
@@ -2946,11 +2947,6 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 
 #ifdef MCAST_RATE_SPECIFIC
 	pAd->CommonCfg.MCastPhyMode.word = pAd->MacTab.Content[MCAST_WCID].HTPhyMode.word;
-	pAd->CommonCfg.MCastPhyMode.field.MODE = MODE_OFDM;
-	pAd->CommonCfg.MCastPhyMode.field.BW = BW_20;
-	pAd->CommonCfg.MCastPhyMode.field.MCS = 0;
-	pAd->CommonCfg.bDisableCTS = 0;
-	pAd->CommonCfg.bApplyMCRateToUC = 0;
 #endif /* MCAST_RATE_SPECIFIC */
 
 	/* WFA policy - disallow TH rate in WEP or TKIP cipher */
@@ -3195,9 +3191,6 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 		pAd->StaCfg.bAdhocN = TRUE;
 		pAd->StaCfg.bFastConnect = FALSE;
 		pAd->StaCfg.bAdhocCreator = FALSE;
-		pAd->MlmeAux.OpChannelTime = OP_CHANNEL_TIME;
-		pAd->MlmeAux.FastScanChannelTime = FAST_ACTIVE_SCAN_TIME;
-		pAd->MlmeAux.ScanDisable = FALSE;
 	}
 #endif /* CONFIG_STA_SUPPORT */
 
@@ -3373,7 +3366,7 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 
 		pAd->ApCfg.ErpIeContent = 0;
 
-		pAd->ApCfg.StaIdleTimeout = MAC_TABLE_LONG_AGEOUT_TIME;
+		pAd->ApCfg.StaIdleTimeout = MAC_TABLE_AGEOUT_TIME;
 
 #ifdef IDS_SUPPORT
 		/* Default disable IDS threshold and reset all IDS counters */
@@ -3583,9 +3576,6 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 	pAd->WOW_Cfg.nSelectedGPIO = 1;
 	pAd->WOW_Cfg.nDelay = 3;	/* (3+1)*3 = 12 sec */
 	pAd->WOW_Cfg.nHoldTime = 1;	/* 1*10 = 10 ms */
-	pAd->WOW_Cfg.awakeTime = WOW_P2P_SLEEP_DUR;
-	pAd->WOW_Cfg.extMode = 0;
-	pAd->WOW_Cfg.resumeByFWEvt = FALSE;
 	DBGPRINT(RT_DEBUG_OFF,
 		 ("WOW Enable %d, WOWFirmware %d\n", pAd->WOW_Cfg.bEnable,
 		  pAd->WOW_Cfg.bWOWFirmware));
@@ -3696,13 +3686,6 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
 
 #ifdef ED_MONITOR
 	pAd->ed_chk = FALSE;	/* let country region to turn on */
-	pAd->ed_fix = TRUE;
-	pAd->ed_skipped_tssi = FALSE;
-	pAd->ed_timer_inited = FALSE;
-	RTMPInitTimer(pAd, &pAd->ed_timer, GET_TIMER_FUNCTION(ed_PeriodicExec), pAd, TRUE);
-	pAd->ed_hitcount = 0;
-	pAd->ed_hw_th_2g = 0x32;
-	pAd->ed_hw_th_5g = 0x0e;
 
 #ifdef CONFIG_AP_SUPPORT
 	pAd->ed_sta_threshold = 1;
@@ -4252,7 +4235,6 @@ INT RtmpRaDevCtrlInit(VOID *pAdSrc, RTMP_INF_TYPE infType)
 	RTMP_SEM_EVENT_INIT(&(pAd->reg_atomic), &pAd->RscSemMemList);
 	RTMP_SEM_EVENT_INIT(&(pAd->hw_atomic), &pAd->RscSemMemList);
 	RTMP_SEM_EVENT_INIT(&(pAd->tssi_lock), &pAd->RscSemMemList);
-	RTMP_SEM_EVENT_INIT(&(pAd->bcn_time_atomic), &pAd->RscSemMemList);
 
 	if (pAd->UsbVendorReqBuf == NULL)
 		os_alloc_mem(pAd, (PUCHAR *) &pAd->UsbVendorReqBuf, MAX_PARAM_BUFFER_SIZE - 1);
@@ -4367,7 +4349,6 @@ BOOLEAN RtmpRaDevCtrlExit(IN VOID *pAdSrc)
 	RTMP_SEM_EVENT_DESTORY(&(pAd->reg_atomic));
 	RTMP_SEM_EVENT_DESTORY(&(pAd->hw_atomic));
 	RTMP_SEM_EVENT_DESTORY(&(pAd->tssi_lock));
-	RTMP_SEM_EVENT_DESTORY(&(pAd->bcn_time_atomic));
 
 	if (pAd->UsbVendorReqBuf) {
 		os_free_mem(pAd, pAd->UsbVendorReqBuf);

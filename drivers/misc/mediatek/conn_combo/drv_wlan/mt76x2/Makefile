@@ -41,7 +41,7 @@ ccflags-y += -DACTIVE_CHANNEL_SCAN_SUPPORT
 ccflags-y += -DRELEASE_EXCLUDE
 ccflags-y += -DCONFIG_FPGA_MODE
 ccflags-y += -DCONFIG_WIFI_TEST
-#ccflags-y += -DCONFIG_CALIBRATION_COLLECTION
+ccflags-y += -DCONFIG_CALIBRATION_COLLECTION
 ccflags-y += -DCONFIG_FW_DEBUG
 ccflags-y += -DMT76x2
 ccflags-y += -DRT65xx
@@ -71,8 +71,6 @@ ccflags-y += -DNEW_WOW_SUPPORT -DWOW_STA_MODE
 ccflags-y += -DWOW_BUF_PKT_SUPPORT
 ccflags-y += -DCONFIG_FW_DEBUG -DCONFIG_FW_CORE_DUMP
 ccflags-y += -DED_MONITOR
-ccflags-y += -DSINGLE_SKU_V2
-ccflags-y += -DSTA_P2P_CONNCURRENT
 # PLATFORM USAGE
 ccflags-y += -DWCX_SUPPORT
 ccflags-y += -DWCX_FT_SUPPORT
@@ -84,11 +82,6 @@ ccflags-y += -g -Wall -Werror -Werror=strict-prototypes -Wno-trigraphs
 ccflags-y += -DRTMP_FREQ_CALIBRATION_SUPPORT
 ccflags-y += -DMULTI_CORE_SUPPORT
 ccflags-y += -DKMALLOC_MEM_SUPPORT
-ccflags-y += -DCMD_TIMEOUT_RECOVER_SUPPORT
-#ccflags-y += -DFORCE_CUSTOMIZED_COUNTRY_REGION
-ccflags-y += -DOLD_PRE_ALLOC
-ccflags-y += -DMCAST_RATE_SPECIFIC
-
 # ---------------------------------------------------
 # Include Path
 # ---------------------------------------------------
@@ -202,9 +195,7 @@ COMMON_OBJS :=	$(COMMON_DIR)vht.o \
 		$(COMMON_DIR)cmm_txbf.o \
 		$(COMMON_DIR)cmm_txbf_cal.o \
 		$(COMMON_DIR)ed_monitor.o \
-		$(COMMON_DIR)frq_cal.o \
-		$(COMMON_DIR)prealloc.o
-
+		$(COMMON_DIR)frq_cal.o
 
 
 MAC_OBJS := $(MAC_DIR)ral_nmac.o \

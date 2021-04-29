@@ -600,13 +600,9 @@ USHORT RtmpUSB_WriteSingleTxResource(IN RTMP_ADAPTER *pAd,
 #endif /* CONFIG_MULTI_CHANNEL */
 			/* For TxInfo, the length of USBDMApktLen = TXWI_SIZE + TSO_SIZE + 802.11 header + payload */
 		{
-			if (pTxBlk->pMacEntry && pTxBlk->pMacEntry->wdev &&
-				(pTxBlk->pMacEntry->wdev->wdev_type == WDEV_TYPE_AP)) {
-				rlt_usb_write_txinfo(pAd, pTxInfo, (USHORT) (dma_len), FALSE, FIFO_MGMT,
-					FALSE /*NextValid */ , FALSE);
-			} else
-				rlt_usb_write_txinfo(pAd, pTxInfo, (USHORT) (dma_len), FALSE, FIFO_EDCA,
-					FALSE /*NextValid */ , FALSE);
+			/* For TxInfo, the length of USBDMApktLen = TXWI_SIZE + TSO_SIZE + 802.11 header + payload */
+			rlt_usb_write_txinfo(pAd, pTxInfo, (USHORT) (dma_len), FALSE, FIFO_EDCA,
+					     FALSE /*NextValid */ , FALSE);
 		}
 
 
@@ -1261,7 +1257,6 @@ PNDIS_PACKET GetPacketFromRxRing(IN RTMP_ADAPTER *pAd,
 #ifdef RLT_MAC
 	RXFCE_INFO *pRxFceInfo = NULL;
 #endif /* RLT_MAC */
-	HEADER_802_11 *pHeader = NULL;
 
 	*bCmdRspPacket = FALSE;
 
@@ -1288,17 +1283,8 @@ PNDIS_PACKET GetPacketFromRxRing(IN RTMP_ADAPTER *pAd,
 	}
 /* ---Add by shiang for debug */
 
-	ThisFrameLen = *pData + (*(pData + 1) << 8);
-#ifdef RLT_MAC
-	pHeader = (HEADER_802_11 *)(pData + RXDMA_FIELD_SIZE + RXINFO_SIZE + RXWISize);
-	if ((pHeader->FC.Type == FC_TYPE_MGMT) && (pHeader->FC.SubType != SUBTYPE_BEACON)) {
-		DBGPRINT(RT_DEBUG_TRACE,
-			("Pkt from %02x:%02x:%02x:%02x:%02x:%02x, Mgmt Frame, subtype = %02x, sequence = %d, FrameLen = %ld\n",
-			PRINT_MAC(pHeader->Addr2), pHeader->FC.SubType, pHeader->Sequence, ThisFrameLen));
-	}
-#endif
-
 	/* The RXDMA field is 4 bytes, now just use the first 2 bytes. The Length including the (RXWI + MSDU + Padding) */
+	ThisFrameLen = *pData + (*(pData + 1) << 8);
 	if (ThisFrameLen == 0) {
 		DBGPRINT(RT_DEBUG_TRACE,
 			 ("BIRIdx(%d): RXDMALen is zero.[%ld], BulkInBufLen = %ld)\n",
@@ -1353,8 +1339,6 @@ PNDIS_PACKET GetPacketFromRxRing(IN RTMP_ADAPTER *pAd,
 		pRxBlk->snr[2] = rxwi_n->bbp_rxinfo[2];
 		pRxBlk->freq_offset = rxwi_n->bbp_rxinfo[4];
 		pRxBlk->ldpc_ex_sym = rxwi_n->ldpc_ex_sym;
-		pRxBlk->ccmp_pn = 0;
-		pRxBlk->ccmp_pn_valid = FALSE;
 	}
 #endif /* RLT_MAC */
 

@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * MediaTek Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2015 MediaTek, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. MediaTek source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of MediaTek. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of MediaTek Technology, Inc. is obtained.
  ***************************************************************************
  */
 
@@ -21,36 +24,16 @@ static INT edcca_tx_stop_start(RTMP_ADAPTER *pAd, BOOLEAN stop)
 	UINT32 macCfg = 0, macStatus = 0;
 	UINT32 MTxCycle;
 	ULONG stTime, mt_time;
-	UINT32 TxPinCfg = 0;
 
 	/* Disable MAC Tx and wait MAC Tx/Rx status in idle state or direcyl enable tx */
 	NdisGetSystemUpTime(&stTime);
 
-	if (stop == TRUE) {
-		Disable_netifQ(pAd);
-		RTMP_IO_READ32(pAd, MAC_SYS_CTRL, &macCfg);
+	RTMP_IO_READ32(pAd, MAC_SYS_CTRL, &macCfg);
+	if (stop == TRUE)
 		macCfg &= (~0x04);
-		RTMP_IO_WRITE32(pAd, MAC_SYS_CTRL, macCfg);
-
-		RTMP_IO_READ32(pAd, TX_PIN_CFG, &TxPinCfg); /* close PA */
-		TxPinCfg &= 0xFFFFFFF0;
-		RTMP_IO_WRITE32(pAd, TX_PIN_CFG, TxPinCfg);
-		pAd->ed_hitcount++;
-	} else {
-		RTMP_IO_READ32(pAd, MAC_SYS_CTRL, &macCfg);
+	else
 		macCfg |= 0x04;
-		RTMP_IO_WRITE32(pAd, MAC_SYS_CTRL, macCfg);
-
-		RTMP_IO_READ32(pAd, TX_PIN_CFG, &TxPinCfg);
-		TxPinCfg |= 0x0000000F;
-		RTMP_IO_WRITE32(pAd, TX_PIN_CFG, TxPinCfg);
-		/*after ed off we need to do tssi cal if was skipped due to ed on*/
-		if (pAd->ed_skipped_tssi) {
-			mt76x2_tssi_calibration(pAd, pAd->CommonCfg.Channel);
-			pAd->ed_skipped_tssi = FALSE;
-		}
-		Enable_netifQ(pAd);
-	}
+	RTMP_IO_WRITE32(pAd, MAC_SYS_CTRL, macCfg);
 
 	if (stop == TRUE) {
 		for (MTxCycle = 0; MTxCycle < 10000; MTxCycle++) {
@@ -73,38 +56,20 @@ static INT edcca_tx_stop_start(RTMP_ADAPTER *pAd, BOOLEAN stop)
 	return TRUE;
 }
 
-
-VOID ed_PeriodicExec(IN PVOID SystemSpecific1,
-		      IN PVOID FunctionContext, IN PVOID SystemSpecific2, IN PVOID SystemSpecific3)
-{
-	RTMP_ADAPTER *pAd = (RTMP_ADAPTER *) FunctionContext;
-	if (pAd->ed_chk) {
-		ed_status_read(pAd);
-	}
-}
-
 INT ed_status_read(RTMP_ADAPTER *pAd)
 {
 	UINT32 period_us = pAd->ed_chk_period * 1000;
 	ULONG irqflag;
+	BOOLEAN stop_edcca = FALSE;
 	INT percent;
 	RX_STA_CNT1_STRUC RxStaCnt1;
 	UINT32 ch_idle_stat = 0, ch_busy_stat = 0, ed_2nd_stat = 0, ed_stat = 0;
-	UINT32 false_cca_cnt = 0;
-	UINT32 cca_percent = 0;
 
-	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF) ||
-	    RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF) ||
-	    RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
-		return TRUE;
-
-
-#if 0	/* yiwei is this confilct with DFS & QBSS_LoadUpdate() ?? */
+	RTMP_IO_READ32(pAd, CH_IDLE_STA, &ch_idle_stat);
+#if 0				/* yiwei is this confilct with DFS & QBSS_LoadUpdate() ?? */
 	RTMP_IO_READ32(pAd, CH_BUSY_STA, &ch_busy_stat);
 	RTMP_IO_READ32(pAd, CH_BUSY_STA_SEC, &ed_2nd_stat);
 #endif /* endif */
-	RTMP_IO_READ32(pAd, CH_BUSY_STA, &ch_busy_stat);
-
 	RTMP_IO_READ32(pAd, 0x1140, &ed_stat);
 	RTMP_IO_READ32(pAd, RX_STA_CNT1, &RxStaCnt1.word);
 
@@ -121,35 +86,32 @@ INT ed_status_read(RTMP_ADAPTER *pAd)
 
 	if ((pAd->ed_threshold > 0) && (period_us > 0) && (pAd->ed_block_tx_threshold > 0)) {
 		percent = (pAd->ed_stat[pAd->ed_stat_lidx] * 100) / period_us;
-		false_cca_cnt = pAd->false_cca_stat[pAd->ed_stat_lidx];
-		if (pAd->ed_stat[pAd->ed_stat_lidx] >= ch_busy_stat) {
-			cca_percent = (pAd->ed_stat[pAd->ed_stat_lidx] - ch_busy_stat + false_cca_cnt * 20)
-				* 100 / period_us;
-		} else
-			cca_percent = 0;
-		if (cca_percent > 100)
-			cca_percent = 100;
 		if (percent > 100)
 			percent = 100;
 
 		/* sync with Shiang's ppt's Algorithm. (20131217) */
-		if (percent > pAd->ed_threshold && cca_percent > pAd->ed_threshold) {
+		if (percent > pAd->ed_threshold) {
 			pAd->ed_trigger_cnt++;
 			pAd->ed_silent_cnt = 0;
-
-			DBGPRINT(RT_DEBUG_TRACE, ("%s(): false cca %d time %d\n",
-				__func__, pAd->false_cca_stat[pAd->ed_stat_lidx],
-				pAd->false_cca_stat[pAd->ed_stat_lidx] * 20));
-			DBGPRINT(RT_DEBUG_TRACE, ("%s(): ed cca %d\n",
-				__func__, ed_stat));
-			DBGPRINT(RT_DEBUG_TRACE, ("%s(): ch busy %d\n",
-				__func__, ch_busy_stat));
-			DBGPRINT(RT_DEBUG_TRACE, ("%s period %d, ed_th %d, percent %d deduct_percent %d, blk cnt %d\n",
-				__func__, pAd->ed_chk_period, pAd->ed_threshold,
-				percent, cca_percent, pAd->ed_block_tx_threshold));
 		} else {
 			pAd->ed_trigger_cnt = 0;
 			pAd->ed_silent_cnt++;
+
+			/* one point to disable edcca, we expect this is normal env not test env. */
+			if (pAd->false_cca_stat[pAd->ed_stat_lidx] > pAd->false_cca_threshold) {
+				pAd->ed_false_cca_cnt++;
+
+				if (pAd->ed_false_cca_cnt > pAd->ed_block_tx_threshold) {
+					stop_edcca = TRUE;
+
+					DBGPRINT(RT_DEBUG_ERROR,
+						 ("@@@ %s:pAd->false_cca_stat[%u]=%u, pAd->false_cca_threshold=%u !!\n",
+						  __func__, pAd->ed_stat_lidx,
+						  pAd->false_cca_stat[pAd->ed_stat_lidx],
+						  pAd->false_cca_threshold));
+				}
+			} else
+				pAd->ed_false_cca_cnt = 0;
 		}
 	}
 	pAd->ed_trigger_stat[pAd->ed_stat_lidx] = pAd->ed_trigger_cnt;
@@ -161,18 +123,25 @@ INT ed_status_read(RTMP_ADAPTER *pAd)
 		INC_RING_INDEX(pAd->ed_stat_sidx, ED_STAT_CNT);
 
 	RTMP_IRQ_UNLOCK(&pAd->irq_lock, irqflag);
-	if (pAd->ed_trigger_cnt > pAd->ed_block_tx_threshold) {
 
-		if (pAd->ed_tx_stoped == FALSE) {
-			edcca_tx_stop_start(pAd, TRUE);
-			pAd->ed_tx_stoped = TRUE;
+	if (stop_edcca) {	/* disable edcca! */
+		if (pAd->ed_chk) {
+			DBGPRINT(RT_DEBUG_ERROR, ("@@@ %s: go to ed_monitor_exit()!!\n", __func__));
+			ed_monitor_exit(pAd);
 		}
-	}
+	} else {
+		if (pAd->ed_trigger_cnt > pAd->ed_block_tx_threshold) {
+			if (pAd->ed_tx_stoped == FALSE) {
+				edcca_tx_stop_start(pAd, TRUE);
+				pAd->ed_tx_stoped = TRUE;
+			}
+		}
 
-	if (pAd->ed_silent_cnt > pAd->ed_block_tx_threshold) {
-		if (pAd->ed_tx_stoped == TRUE) {
-			edcca_tx_stop_start(pAd, FALSE);
-			pAd->ed_tx_stoped = FALSE;
+		if (pAd->ed_silent_cnt > pAd->ed_block_tx_threshold) {
+			if (pAd->ed_tx_stoped == TRUE) {
+				edcca_tx_stop_start(pAd, FALSE);
+				pAd->ed_tx_stoped = FALSE;
+			}
 		}
 	}
 
@@ -183,11 +152,9 @@ INT ed_status_read(RTMP_ADAPTER *pAd)
 INT ed_monitor_exit(RTMP_ADAPTER *pAd)
 {
 	ULONG irqflag;
-	BOOLEAN old_ed_tx_stoped, old_ed_chk, Cancelled;
+	BOOLEAN old_ed_tx_stoped, old_ed_chk;
 
-	RTMPCancelTimer(&pAd->ed_timer, &Cancelled);
 	RTMP_IRQ_LOCK(&pAd->irq_lock, irqflag);
-	pAd->ed_timer_inited = FALSE;
 	DBGPRINT(RT_DEBUG_OFF, ("@@@ %s : ===>\n", __func__));
 
 	NdisZeroMemory(&pAd->ed_stat[0], sizeof(pAd->ed_stat));
@@ -229,7 +196,6 @@ INT ed_monitor_exit(RTMP_ADAPTER *pAd)
 VOID ed_monitor_init(RTMP_ADAPTER *pAd)
 {
 	ULONG irqflag;
-	TX_LINK_CFG_STRUC TxLinkCfg;
 
 	RTMP_IRQ_LOCK(&pAd->irq_lock, irqflag);
 	DBGPRINT(RT_DEBUG_OFF, ("@@@ %s : ===>\n", __func__));
@@ -251,20 +217,13 @@ VOID ed_monitor_init(RTMP_ADAPTER *pAd)
 	pAd->ed_tx_stoped = FALSE;
 	/* also set  top level flags */
 	pAd->ed_chk = TRUE;
-	RTMP_IRQ_UNLOCK(&pAd->irq_lock, irqflag);
-	RTMP_IO_READ32(pAd, TX_LINK_CFG, &TxLinkCfg.word);
-	TxLinkCfg.field.TxRDGEn = 0;
-	TxLinkCfg.field.TxCFAckEn = 0;
-	RTMP_IO_WRITE32(pAd, TX_LINK_CFG, TxLinkCfg.word);
-	RTMP_IRQ_LOCK(&pAd->irq_lock, irqflag);
+
 	pAd->CommonCfg.bRdg = FALSE;
 
 	DBGPRINT(RT_DEBUG_OFF, ("@@@ %s : <===\n", __func__));
-	pAd->ed_timer_inited = TRUE;
 	RTMP_IRQ_UNLOCK(&pAd->irq_lock, irqflag);
 
 	RTMP_CHIP_ASIC_SET_EDCCA(pAd, TRUE);
-	RTMPSetTimer(&pAd->ed_timer, pAd->ed_chk_period);
 }
 
 INT set_ed_block_tx_thresh(RTMP_ADAPTER *pAd, PSTRING arg)
@@ -302,19 +261,6 @@ INT set_ed_threshold(RTMP_ADAPTER *pAd, PSTRING arg)
 	return TRUE;
 }
 
-INT set_ed_period(RTMP_ADAPTER *pAd, PSTRING arg)
-{
-	LONG ed_period;
-
-	if (kstrtol(arg, 0, &ed_period) == 0) {
-		pAd->ed_chk_period = ed_period;
-		DBGPRINT(RT_DEBUG_OFF,
-			("set ed_period = %d\n", pAd->ed_chk_period));
-	}
-
-	return TRUE;
-}
-
 INT set_ed_false_cca_threshold(RTMP_ADAPTER *pAd, PSTRING arg)
 {
 	long false_cca_threshold;
@@ -343,12 +289,12 @@ INT set_ed_chk_proc(RTMP_ADAPTER *pAd, PSTRING arg)
 		return FALSE;
 
 	DBGPRINT(RT_DEBUG_OFF, ("%s(): ed_chk=%ld\n", __func__, ed_chk));
-	if (pAd->ed_chk != (BOOLEAN)ed_chk) {
-		if (ed_chk != 0)
-			ed_monitor_init(pAd);
-		else
-			ed_monitor_exit(pAd);
-	}
+
+	if (ed_chk != 0)
+		ed_monitor_init(pAd);
+	else
+		ed_monitor_exit(pAd);
+
 	return TRUE;
 }
 

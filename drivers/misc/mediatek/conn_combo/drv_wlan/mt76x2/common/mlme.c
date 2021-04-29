@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology	5th	Rd.
+ * Science-based Industrial	Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work	and	the
+ * use of a	copyright notice does not imply	otherwise. This	source code
+ * contains	confidential trade secret material of Ralink Tech. Any attemp
+ * or participation	in deciphering,	decoding, reverse engineering or in	any
+ * way altering	the	source code	is stricitly prohibited, unless	the	prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -563,9 +566,8 @@ static INT MlmeThread(ULONG Context)
 
 		/* lock the device pointers , need to check if required */
 		/*down(&(pAd->usbdev_semaphore)); */
-		if (pAd->WOW_Cfg.extMode & WOW_NEED_RESUME)
-			Set_UsbWOWResume(pAd, NULL);
-		else if (!pAd->PM_FlgSuspend)
+
+		if (!pAd->PM_FlgSuspend)
 			MlmeHandler(pAd);
 	}
 
@@ -836,12 +838,6 @@ VOID MlmeHalt(RTMP_ADAPTER *pAd)
 				 pAd->CommonCfg.CentralChannel, TRUE, 0);
 	}
 #endif /*MT76XX_BTCOEX_SUPPORT */
-#ifdef ED_MONIOTR
-	if (pAd->ed_timer_inited) {
-		RTMPCancelTimer(&pAd->ed_timer, &Cancelled);
-		pAd->ed_timer_inited = FALSE;
-	}
-#endif
 	RTMPCancelTimer(&pAd->Mlme.PeriodicTimer, &Cancelled);
 
 #ifdef CONFIG_STA_SUPPORT
@@ -1032,11 +1028,6 @@ VOID MlmePeriodicExec(IN PVOID SystemSpecific1,
 #endif /* MICROWAVE_OVEN_SUPPORT */
 
 	/* No More 0x84 MCU CMD from v.30 FW */
-
-#if defined(NEW_WOW_SUPPORT) && defined(RT_CFG80211_SUPPORT)
-		if (pAd->WOW_Cfg.extMode & WOW_FAKE_SUSPEND)
-			return;
-#endif
 
 #ifdef MICROWAVE_OVEN_SUPPORT
 	if (pAd->CommonCfg.MO_Cfg.bEnable) {
@@ -1265,8 +1256,9 @@ VOID MlmePeriodicExec(IN PVOID SystemSpecific1,
 		ORIBATimerTimeout(pAd);
 
 #ifdef DYNAMIC_VGA_SUPPORT
-		if ((pAd->Mlme.OneSecPeriodicRound % 1 == 0) && (pAd->CommonCfg.ChSwitchState == SWITCHED))
+		if (pAd->Mlme.OneSecPeriodicRound % 1 == 0) {
 			RTMP_ASIC_DYNAMIC_VGA_GAIN_CONTROL(pAd);
+		}
 #endif /* DYNAMIC_VGA_SUPPORT */
 
 		/*
@@ -1321,14 +1313,11 @@ VOID MlmePeriodicExec(IN PVOID SystemSpecific1,
 		     fRTMP_ADAPTER_DISABLE_DEQUEUEPACKET) == FALSE) &&
 		    (pAd->Mlme.OneSecPeriodicRound % 1) == 0) {
 #ifdef CONFIG_STA_SUPPORT
-			if ((INFRA_ON(pAd)
+			if (INFRA_ON(pAd)
 #ifdef RT_CFG80211_P2P_SUPPORT
 			    || RTMP_CFG80211_VIF_P2P_GO_ON(pAd)
 			    || (RTMP_CFG80211_VIF_P2P_CLI_ON(pAd) &&
-			    pApCliEntry->CtrlCurrState == APCLI_CTRL_CONNECTED))
-			    && !pAd->cfg80211_ctrl.FlgCfg80211Connecting
-			    && !pAd->cfg80211_ctrl.FlgCfg80211Scanning
-			    && (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
+			    pApCliEntry->CtrlCurrState == APCLI_CTRL_CONNECTED)
 #endif /* RT_CFG80211_P2P_SUPPORT */
 			) {
 #ifdef NEW_WOW_SUPPORT
@@ -1497,8 +1486,8 @@ VOID MlmePeriodicExec(IN PVOID SystemSpecific1,
 #endif /* WSC_INCLUDED */
 
 
-/*this timer could only be multile of 100 move it to another*/
-#if 0 /*def ED_MONITOR*/
+
+#ifdef ED_MONITOR
 	if (pAd->ed_chk) {
 		ed_status_read(pAd);
 	}
@@ -1667,6 +1656,22 @@ VOID STAMlmePeriodicExec(RTMP_ADAPTER *pAd)
 	}
 #endif /* P2P_SUPPORT || RT_CFG80211_P2P_SUPPORT */
 
+	/* resume Improved Scanning */
+	if ((pAd->StaCfg.bImprovedScan) &&
+	    (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) &&
+	    (pAd->Mlme.SyncMachine.CurrState == SCAN_PENDING)) {
+		MLME_SCAN_REQ_STRUCT ScanReq;
+
+		pAd->StaCfg.LastScanTime = pAd->Mlme.Now32;
+
+		ScanParmFill(pAd, &ScanReq, pAd->MlmeAux.Ssid, pAd->MlmeAux.SsidLen, BSS_ANY,
+			     SCAN_ACTIVE);
+		MlmeEnqueue(pAd, SYNC_STATE_MACHINE, MT2_MLME_SCAN_REQ,
+			    sizeof(MLME_SCAN_REQ_STRUCT), &ScanReq, 0);
+		DBGPRINT(RT_DEBUG_WARN,
+			 ("bImprovedScan ............. Resume for bImprovedScan, SCAN_PENDING ..............\n"));
+	}
+
 	if (INFRA_ON(pAd)) {
 #ifdef QOS_DLS_SUPPORT
 		/* Check DLS time out, then tear down those session */
@@ -1691,30 +1696,34 @@ VOID STAMlmePeriodicExec(RTMP_ADAPTER *pAd)
 		   the beacon of the AP. So, here we simulate that we received the beacon.
 		 */
 		if ((bCheckBeaconLost == FALSE) &&
-			(RTMP_TIME_AFTER(pAd->Mlme.Now32, pAd->StaCfg.LastBeaconRxTime + (1*OS_HZ))) &&
-			 (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)
-#ifdef NEW_WOW_SUPPORT
-			 /* Also if during suspend, we shall simulate beacon received. */
-			  || RTMP_TEST_SUSPEND_FLAG(pAd, fRTMP_ADAPTER_SUSPEND_STATE_SUSPENDING)
-#endif /* NEW_WOW_SUPPORT */
-			)) {
-				MlmeCompensateLastBeaconRxTime(pAd, pAd->Mlme.Now32);
-			}
+		    RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS) &&
+		    (RTMP_TIME_AFTER(pAd->Mlme.Now32, pAd->StaCfg.LastBeaconRxTime + (1 * OS_HZ))))
+		{
+			ULONG BPtoJiffies;
+			LONG timeDiff;
 
-			if ((RTMP_TIME_AFTER(pAd->Mlme.Now32, pAd->StaCfg.LastBeaconRxTime + (1*OS_HZ))) &&
-				(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) &&
-				(pAd->StaCfg.bImprovedScan == FALSE) &&
-				((TxTotalCnt + pAd->RalinkCounters.OneSecRxOkCnt) < 600) &&
-				(!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF))
-#ifdef NEW_WOW_SUPPORT
-				&& (!RTMP_TEST_SUSPEND_FLAG(pAd, fRTMP_ADAPTER_SUSPEND_STATE_SUSPENDING))
-#endif /* NEW_WOW_SUPPORT */
-			) {
-				RTMPSetAGCInitValue(pAd, BW_20);
-				DBGPRINT(RT_DEBUG_TRACE, ("MMCHK - No BEACON. restore R66 to the low bound(%d)\n",
-					(0x2E + pAd->hw_cfg.lan_gain)));
-			}
+			BPtoJiffies =
+			    (((pAd->CommonCfg.BeaconPeriod * 1024 / 1000) * OS_HZ) / 1000);
+			timeDiff = (pAd->Mlme.Now32 - pAd->StaCfg.LastBeaconRxTime) / BPtoJiffies;
+			if (timeDiff > 0)
+				pAd->StaCfg.LastBeaconRxTime += (timeDiff * BPtoJiffies);
 
+			if (RTMP_TIME_AFTER(pAd->StaCfg.LastBeaconRxTime, pAd->Mlme.Now32)) {
+				DBGPRINT(RT_DEBUG_ERROR,
+					 ("MMCHK - BeaconRxTime adjust wrong(BeaconRx=0x%lx, Now=0x%lx)\n",
+					  pAd->StaCfg.LastBeaconRxTime, pAd->Mlme.Now32));
+			}
+		}
+
+		if ((RTMP_TIME_AFTER(pAd->Mlme.Now32, pAd->StaCfg.LastBeaconRxTime + (1 * OS_HZ)))
+		    && (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS))
+		    && (pAd->StaCfg.bImprovedScan == FALSE)
+		    && ((TxTotalCnt + pAd->RalinkCounters.OneSecRxOkCnt) < 600)) {
+			RTMPSetAGCInitValue(pAd, BW_20);
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("MMCHK - No BEACON. restore R66 to the low bound(%d)\n",
+				  (0x2E + GET_LNA_GAIN(pAd))));
+		}
 #ifdef RTMP_MAC_USB
 /*for 1X1 STA pass 11n wifi wmm, need to change txop per case;*/
 /* 1x1 device for 802.11n WMM Test*/
@@ -1818,14 +1827,10 @@ VOID STAMlmePeriodicExec(RTMP_ADAPTER *pAd)
 			}
 		}
 
-		if (
-#ifdef ED_MONITOR
-			!pAd->ed_tx_stoped &&
-#endif
-			CQI_IS_DEAD(pAd->Mlme.ChannelQuality)) {
+		if (CQI_IS_DEAD(pAd->Mlme.ChannelQuality)) {
 			DBGPRINT(RT_DEBUG_ERROR,
-				 ("MMCHK - No BEACON. Dead CQI. Auto Recovery attempt #%ld, ed_tx_stoped %d\n",
-				  pAd->RalinkCounters.BadCQIAutoRecoveryCount, pAd->ed_tx_stoped));
+				 ("MMCHK - No BEACON. Dead CQI. Auto Recovery attempt #%ld\n",
+				  pAd->RalinkCounters.BadCQIAutoRecoveryCount));
 
 			if (pAd->StaCfg.bAutoConnectByBssid)
 				pAd->StaCfg.bAutoConnectByBssid = FALSE;
@@ -2022,15 +2027,14 @@ SKIP_AUTO_SCAN_CONN:
 #endif /* P2P_SUPPORT || RT_CFG80211_P2P_CONCURRENT_DEVICE */
 
 	/* Perform 20/40 BSS COEX scan every Dot11BssWidthTriggerScanInt        */
-	if ((!RTMP_CFG80211_VIF_P2P_GO_ON(pAd)) &&
-		(OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SCAN_2040)) &&
-		(pAd->CommonCfg.Dot11BssWidthTriggerScanInt != 0) &&
-		((pAd->Mlme.OneSecPeriodicRound % pAd->CommonCfg.Dot11BssWidthTriggerScanInt) ==
-		(pAd->CommonCfg.Dot11BssWidthTriggerScanInt - 1))) {
+	if ((OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_SCAN_2040)) &&
+	    (pAd->CommonCfg.Dot11BssWidthTriggerScanInt != 0) &&
+	    ((pAd->Mlme.OneSecPeriodicRound % pAd->CommonCfg.Dot11BssWidthTriggerScanInt) ==
+	     (pAd->CommonCfg.Dot11BssWidthTriggerScanInt - 1))) {
 		DBGPRINT(RT_DEBUG_TRACE,
-			("MMCHK - LastOneSecTotalTxCount/LastOneSecRxOkDataCnt  = %d/%d\n",
-			pAd->RalinkCounters.LastOneSecTotalTxCount,
-			pAd->RalinkCounters.LastOneSecRxOkDataCnt));
+			 ("MMCHK - LastOneSecTotalTxCount/LastOneSecRxOkDataCnt  = %d/%d\n",
+			  pAd->RalinkCounters.LastOneSecTotalTxCount,
+			  pAd->RalinkCounters.LastOneSecRxOkDataCnt));
 
 		/* Check last scan time at least 30 seconds from now.           */
 		/* Check traffic is less than about 1.5~2Mbps. */
@@ -4950,8 +4954,7 @@ BOOLEAN MlmeEnqueueForRecv(IN RTMP_ADAPTER *pAd,
 	   This might happen when timer already been fired before cancel timer with mlmehalt
 	 */
 	if (RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_HALT_IN_PROGRESS | fRTMP_ADAPTER_NIC_NOT_EXIST)) {
-		if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_POLL_IDLE))
-			DBGPRINT_ERR(("%s(): fRTMP_ADAPTER_HALT_IN_PROGRESS\n", __func__));
+		DBGPRINT_ERR(("%s(): fRTMP_ADAPTER_HALT_IN_PROGRESS\n", __func__));
 		return FALSE;
 	}
 
@@ -5010,15 +5013,13 @@ BOOLEAN MlmeEnqueueForRecv(IN RTMP_ADAPTER *pAd,
 					break;
 			}
 
-			DBGPRINT(RT_DEBUG_TRACE, ("%s(): un-recongnized mgmt->subtype=%d,"
-				"STA-%02x:%02x:%02x:%02x:%02x:%02x\n",
-				__func__, pFrame->Hdr.FC.SubType, PRINT_MAC(pFrame->Hdr.Addr2)));
+			DBGPRINT_ERR(("%s(): un-recongnized mgmt->subtype=%d, STA-%02x:%02x:%02x:%02x:%02x:%02x\n", __func__, pFrame->Hdr.FC.SubType, PRINT_MAC(pFrame->Hdr.Addr2)));
 			return FALSE;
 
 		} while (FALSE);
 #else
 		if (!APMsgTypeSubst(pAd, pFrame, &Machine, &MsgType)) {
-			DBGPRINT(RT_DEBUG_TRACE, ("%s(): un-recongnized mgmt->subtype=%d\n",
+			DBGPRINT_ERR(("%s(): un-recongnized mgmt->subtype=%d\n",
 				      __func__, pFrame->Hdr.FC.SubType));
 			return FALSE;
 		}
@@ -5033,7 +5034,7 @@ BOOLEAN MlmeEnqueueForRecv(IN RTMP_ADAPTER *pAd,
 #endif /* P2P_SUPPORT */
 	{
 		if (!MsgTypeSubst(pAd, pFrame, &Machine, &MsgType)) {
-				DBGPRINT(RT_DEBUG_TRACE, ("%s(): un-recongnized mgmt->subtype=%d\n",
+				DBGPRINT_ERR(("%s(): un-recongnized mgmt->subtype=%d\n",
 					      __func__, pFrame->Hdr.FC.SubType));
 			return FALSE;
 		}
@@ -5213,7 +5214,6 @@ VOID MlmeRestartStateMachine(RTMP_ADAPTER *pAd)
 
 	/* Change back to original channel in case of doing scan */
 	{
-		AsicEnableBeacon(pAd);
 		AsicSwitchChannel(pAd, pAd->CommonCfg.Channel, FALSE);
 		AsicLockChannel(pAd, pAd->CommonCfg.Channel);
 	}
@@ -6534,12 +6534,5 @@ BOOLEAN CHAN_PropertyCheck(RTMP_ADAPTER *pAd, UINT32 ChanNum, UCHAR Property)
 	}
 
 	return FALSE;
-}
-
-VOID MlmeCompensateLastBeaconRxTime(RTMP_ADAPTER *pAd, ULONG Now)
-{
-	/* Note: Just update LastBeaconRxTime as current time */
-	if (RTMP_TIME_AFTER(Now, pAd->StaCfg.LastBeaconRxTime))
-		pAd->StaCfg.LastBeaconRxTime = Now;
 }
 

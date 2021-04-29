@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology	5th	Rd.
+ * Science-based Industrial	Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2006, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work	and	the
+ * use of a	copyright notice does not imply	otherwise. This	source code
+ * contains	confidential trade secret material of Ralink Tech. Any attemp
+ * or participation	in deciphering,	decoding, reverse engineering or in	any
+ * way altering	the	source code	is stricitly prohibited, unless	the	prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -228,11 +231,8 @@ NTSTATUS RTUSBMultiWrite_nBytes(IN RTMP_ADAPTER *pAd,
 					     DEVICE_VENDOR_REQUEST_OUT,
 					     0x6, 0, index, pSrc, actLen);
 
-		if (Status == NDIS_STATUS_FAILURE) {
-			/* Do not print error message by default if in Radio_Off case. */
-			if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF |
-						 fRTMP_ADAPTER_NIC_NOT_EXIST))
-				DBGPRINT(RT_DEBUG_ERROR, ("%s: failed!!\n", __func__));
+		if (Status != STATUS_SUCCESS) {
+			DBGPRINT(RT_DEBUG_ERROR, ("VendrCmdMultiWrite_nBytes failed!\n"));
 			break;
 		}
 
@@ -370,6 +370,12 @@ int write_reg(RTMP_ADAPTER *ad, UINT32 base, UINT16 offset, UINT32 val)
 	UINT8 req;
 	UINT32 io_value;
 
+	ASSERT(base == 0x40);
+	if (base != 0x40) {
+		DBGPRINT(RT_DEBUG_ERROR, ("Unknown base %x should be 0x40\n", base));
+		return STATUS_UNSUCCESSFUL;
+	}
+
 	req = 0x46;
 
 	io_value = cpu2le32(val);
@@ -379,7 +385,7 @@ int write_reg(RTMP_ADAPTER *ad, UINT32 base, UINT16 offset, UINT32 val)
 				  DEVICE_VENDOR_REQUEST_OUT, req, 0, offset, &io_value, 4);
 
 	if (ret) {
-		DBGPRINT(RT_DEBUG_ERROR, ("write reg fail(base:%x offset:%x\n", base, offset));
+		DBGPRINT(RT_DEBUG_ERROR, ("write reg fail\n"));
 	}
 
 	return ret;
@@ -986,9 +992,7 @@ NTSTATUS RTUSB_VendorRequest(IN PRTMP_ADAPTER pAd,
 		/*DBGPRINT(RT_DEBUG_ERROR, ("WIFI device has been disconnected\n")); */
 		return NDIS_STATUS_FAILURE;
 	} else if (RTMP_TEST_PSFLAG(pAd, fRTMP_PS_MCU_SLEEP)) {
-		/* Do not print error message by default if in Radio_Off case. */
-		if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF))
-			DBGPRINT(RT_DEBUG_ERROR, ("MCU has entered sleep mode\n"));
+		DBGPRINT(RT_DEBUG_ERROR, ("MCU has entered sleep mode\n"));
 		return NDIS_STATUS_FAILURE;
 	} else {
 		int RetryCount = 0;	/* RTUSB_CONTROL_MSG retry counts */
@@ -1055,7 +1059,7 @@ NTSTATUS RTUSB_VendorRequest(IN PRTMP_ADAPTER pAd,
 			  fail_cnt));
 		if (fail_cnt >= fail_cnt_threshold) {
 			DBGPRINT(RT_DEBUG_ERROR, ("Try to Reset Dongle\n"));
-			/* RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST);*/
+			RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST);
 			Set_Chip_Reset(pAd, NULL);
 		}
 #endif

@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -356,10 +357,8 @@ static void mt76x2_ate_switch_channel(RTMP_ADAPTER *ad)
 		 ("%s(): Switch to Ch#%d(%dT%dR), BBP_BW=%d\n", __func__, channel, 2, 2, bw));
 }
 
-#define TSSI_COMPESATION_INIT_G_BAND_WF0 0x34
-#define TSSI_COMPESATION_INIT_G_BAND_WF1 0x34
-#define TSSI_COMPESATION_INIT_A_BAND_WF0 0x36
-#define TSSI_COMPESATION_INIT_A_BAND_WF1 0x36
+#define TSSI_COMPESAION_INIT_G_BAND 0x31
+#define TSSI_COMPESAION_INIT_A_BAND 0x34
 
 static INT mt76x2_ate_tx_pwr_handler(IN RTMP_ADAPTER *ad, IN char index)
 {
@@ -388,9 +387,9 @@ static INT mt76x2_ate_tx_pwr_handler(IN RTMP_ADAPTER *ad, IN char index)
 			if (mt76x2_tx0_tssi_small_pwr_adjust == FALSE) {
 				value &= ~(0x3F);
 				if (pATEInfo->Channel > 14) {
-					value |= TSSI_COMPESATION_INIT_A_BAND_WF0;
+					value |= TSSI_COMPESAION_INIT_A_BAND;
 				} else {
-					value |= TSSI_COMPESATION_INIT_G_BAND_WF0;
+					value |= TSSI_COMPESAION_INIT_G_BAND;
 				}
 			} else {
 				if (pATEInfo->Channel > 14) {
@@ -400,7 +399,7 @@ static INT mt76x2_ate_tx_pwr_handler(IN RTMP_ADAPTER *ad, IN char index)
 						/* mt76x2_tx0_tssi_small_pwr_adjust = FALSE;     //keep true to let periodic modify target power back to user set */
 					} else {
 						value &= ~(0x3F);
-						value |= TSSI_COMPESATION_INIT_A_BAND_WF0;
+						value |= TSSI_COMPESAION_INIT_A_BAND;
 					}
 				} else {
 					if (mt76x2_2G_tx0_pwr_offset_save != 0) {
@@ -409,7 +408,7 @@ static INT mt76x2_ate_tx_pwr_handler(IN RTMP_ADAPTER *ad, IN char index)
 						/* mt76x2_tx0_tssi_small_pwr_adjust = FALSE;  //keep true to let periodic modify target power back to user set */
 					} else {
 						value &= ~(0x3F);
-						value |= TSSI_COMPESATION_INIT_G_BAND_WF0;
+						value |= TSSI_COMPESAION_INIT_G_BAND;
 					}
 				}
 			}
@@ -443,9 +442,9 @@ static INT mt76x2_ate_tx_pwr_handler(IN RTMP_ADAPTER *ad, IN char index)
 			if (mt76x2_tx1_tssi_small_pwr_adjust == FALSE) {
 				value &= ~(0x3F);
 				if (pATEInfo->Channel > 14) {
-					value |= TSSI_COMPESATION_INIT_A_BAND_WF1;
+					value |= TSSI_COMPESAION_INIT_A_BAND;
 				} else {
-					value |= TSSI_COMPESATION_INIT_G_BAND_WF1;
+					value |= TSSI_COMPESAION_INIT_G_BAND;
 				}
 			} else {
 				if (pATEInfo->Channel > 14) {
@@ -455,7 +454,7 @@ static INT mt76x2_ate_tx_pwr_handler(IN RTMP_ADAPTER *ad, IN char index)
 						/* mt76x2_tx1_tssi_small_pwr_adjust = FALSE; //keep true to let periodic modify target power back to user set */
 					} else {
 						value &= ~(0x3F);
-						value |= TSSI_COMPESATION_INIT_A_BAND_WF1;
+						value |= TSSI_COMPESAION_INIT_A_BAND;
 					}
 
 				} else {
@@ -465,7 +464,7 @@ static INT mt76x2_ate_tx_pwr_handler(IN RTMP_ADAPTER *ad, IN char index)
 						/* mt76x2_tx1_tssi_small_pwr_adjust = FALSE; //keep true to let periodic modify target power back to user set */
 					} else {
 						value &= ~(0x3F);
-						value |= TSSI_COMPESATION_INIT_G_BAND_WF1;
+						value |= TSSI_COMPESAION_INIT_G_BAND;
 					}
 				}
 			}
@@ -2087,6 +2086,7 @@ static void mt76x2_ate_single_sku(IN PRTMP_ADAPTER pAd, IN BOOLEAN value)
 		pATEInfo->bDoSingleSKU = TRUE;
 		DBGPRINT(RT_DEBUG_TRACE, ("ATESINGLESKU = TRUE , enabled single sku in ATE!\n"));
 	} else {
+		u32 value1 = 0;
 		pATEInfo->bDoSingleSKU = FALSE;
 		DBGPRINT(RT_DEBUG_TRACE, ("ATESINGLESKU = FALSE , disabled single sku in ATE!\n"));
 		/* show_pwr_info(pAd,NULL); */

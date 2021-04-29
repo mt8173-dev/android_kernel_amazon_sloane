@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -623,11 +626,9 @@ VOID STAHandleRxDataFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 				ASSERT(pRxBlk->wcid == BSSID_WCID);
 			if (pRxBlk->wcid != BSSID_WCID) {
 				printk
-					("[%d] 1: %02x:%02x:%02x:%02x:%02x:%02x, "
-					"2: %02x:%02x:%02x:%02x:%02x:%02x, "
-					"3: %02x:%02x:%02x:%02x:%02x:%02x\n",
-					pRxBlk->wcid, PRINT_MAC(pHeader->Addr1),
-					PRINT_MAC(pHeader->Addr2), PRINT_MAC(pHeader->Addr3));
+				    ("[%d] 1: %02x:%02x:%02x:%02x:%02x:%02x, 2: %02x:%02x:%02x:%02x:%02x:%02x, 3:%02x:%02x:%02x:%02x:%02x:%02x",
+				     pRxBlk->wcid, PRINT_MAC(pHeader->Addr1),
+				     PRINT_MAC(pHeader->Addr2), PRINT_MAC(pHeader->Addr3));
 			}
 		}
 #ifndef WFA_VHT_PF
@@ -735,22 +736,14 @@ VOID STAHandleRxDataFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 		PCIPHER_KEY pSwKey = RTMPSwCipherKeySelection(pAd,
 							      pRxBlk->pData, pRxBlk,
 							      pEntry);
+
 		/* Cipher key table selection */
 		if (!pSwKey) {
 			DBGPRINT(RT_DEBUG_TRACE, ("No vaild cipher key for SW decryption!!!\n"));
 			RELEASE_NDIS_PACKET(pAd, pRxPacket, NDIS_STATUS_FAILURE);
 			return;
 		}
-		if (pSwKey->CipherAlg == CIPHER_AES) {
-			/* store PN and pn_len before sw-dec */
-			memcpy(pRxBlk->eiv_pn, pRxBlk->pData, LEN_CCMP_HDR);
-			pRxInfo->pn_len = LEN_CCMP_HDR / 4; /* dword count */
-		}
 
-		if (pAd->swChiperErrDumped) {
-			pAd->dbgLvlBackUp = RTDebugLevel;
-			RTDebugLevel = RT_DEBUG_OFF;
-		}
 		/* Decryption by Software */
 		if (RTMPSoftDecryptionAction(pAd,
 					     (PUCHAR) pHeader,
@@ -758,61 +751,13 @@ VOID STAHandleRxDataFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 					     pSwKey,
 					     pRxBlk->pData,
 					     &(pRxBlk->DataSize)) != NDIS_STATUS_SUCCESS) {
-			if (!pAd->swChiperErrDumped) {
-				dump_rxinfo(pAd, pRxInfo);
-				pAd->swChiperErrDumped = TRUE;
-			} else
-				RTDebugLevel = pAd->dbgLvlBackUp;
 			RELEASE_NDIS_PACKET(pAd, pRxPacket, NDIS_STATUS_FAILURE);
 			return;
 		}
-		if (pAd->swChiperErrDumped)
-			RTDebugLevel = pAd->dbgLvlBackUp;
-			/* Record the Decrypted bit as 1 */
+		/* Record the Decrypted bit as 1 */
 		pRxInfo->Decrypted = 1;
-	} else
+	}
 #endif /* SOFT_ENCRYPT || ADHOC_WPA2PSK_SUPPORT */
-	do {
-		/* Store hw padded IV/EIV (if any) and move pRxBlk->pData.
-		 *
-		 * @pRxBlk: rx descriptor block
-		 * @pRxInfo: rxinfo in rxblk hw_rx_info
-		 * @pRxWI: rxwi in pRxPacket
-		 */
-		UINT32 pn_len_byte;
-
-		if (!pRxInfo->pn_len) {
-			DBGPRINT(RT_DEBUG_INFO, ("no IV/EIV padded\n"));
-			break; /* no IV/EIV padding */
-		}
-
-		pn_len_byte = pRxInfo->pn_len * 4;
-		if (unlikely(pRxBlk->DataSize <= pn_len_byte)) {
-			/* not enough data */
-			DBGPRINT(RT_DEBUG_ERROR, ("DataSize %u <= pn_len %u\n",
-				pRxBlk->DataSize, pn_len_byte));
-			RELEASE_NDIS_PACKET(pAd, pRxPacket,
-				NDIS_STATUS_FAILURE);
-			return;
-		}
-
-		if (unlikely(sizeof(pRxBlk->eiv_pn) <= pn_len_byte)) {
-			/* not enough eiv_pn buffer */
-			DBGPRINT(RT_DEBUG_ERROR,
-				("pRxBlk->eiv_pn size %zu <= pn_len %u\n",
-				sizeof(pRxBlk->eiv_pn), pn_len_byte));
-			RELEASE_NDIS_PACKET(pAd, pRxPacket,
-				NDIS_STATUS_FAILURE);
-			return;
-		}
-
-		/* store padded IV/EIV in rxblk */
-		memcpy(pRxBlk->eiv_pn, pRxBlk->pData, pn_len_byte);
-		/* move pRxBlk->pData pointer */
-		pRxBlk->pData += pn_len_byte;
-		pRxBlk->DataSize -= pn_len_byte;
-	} while (0);
-
 
 #ifdef DOT11Z_TDLS_SUPPORT
 #ifdef TDLS_AUTOLINK_SUPPORT
@@ -869,41 +814,6 @@ VOID STAHandleRxDataFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 		}
 #endif /* WFD_SUPPORT */
 #endif /* DOT11Z_TDLS_SUPPORT */
-
-		do {
-					/* Update MT76x2 PN value only for AES CCMP BMC pkts
-					 *
-					 * @pRxBlk: rx descriptor block
-					 * @pRxInfo: rxinfo in rxblk hw_rx_info
-					 * @pKey: RX GTK entry
-					 */
-					PCIPHER_KEY pKey;
-
-					if (!pRxInfo->pn_len || pRxInfo->pn_len != 2) {
-						DBGPRINT(RT_DEBUG_INFO, ("no EIV\n"));
-						break; /* handle CCMP 2 dwords only */
-					}
-
-					/* search key and cipher */
-					pKey = RTMPSwCipherKeySelection(pAd, pRxBlk->eiv_pn,
-									pRxBlk, pEntry);
-					/* ignore non-aes */
-					if (!pKey || pKey->CipherAlg != CIPHER_AES) {
-						DBGPRINT(RT_DEBUG_INFO, ("non-aes cipher %u\n",
-							(pKey) ? pKey->CipherAlg : 0xFF));
-						break;
-					}
-
-					/* get PN from pRxBlk->eiv_pn[] */
-					pRxBlk->ccmp_pn = le32_to_cpu(get_unaligned((const u32 *)&pRxBlk->eiv_pn[4]));
-					pRxBlk->ccmp_pn <<= 16;
-					pRxBlk->ccmp_pn += le16_to_cpu(get_unaligned((const u16 *)&pRxBlk->eiv_pn[0]));
-					pRxBlk->ccmp_pn_valid = TRUE;
-					DBGPRINT(RT_DEBUG_TRACE, ("BMC aes k %u b %u pn %llu w %u\n",
-						pRxBlk->key_idx, pRxBlk->bss_idx,
-						pRxBlk->ccmp_pn, pRxBlk->wcid));
-		} while (0);
-
 
 		Indicate_Legacy_Packet(pAd, pRxBlk, FromWhichBSSID);
 		return;

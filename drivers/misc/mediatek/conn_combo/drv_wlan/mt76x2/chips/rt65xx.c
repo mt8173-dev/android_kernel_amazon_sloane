@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -34,15 +37,7 @@ VOID RT65xxUsbAsicRadioOff(RTMP_ADAPTER *pAd, UCHAR Stage)
 
 	DBGPRINT(RT_DEBUG_TRACE, ("--> %s\n", __func__));
 
-	RTMP_SET_SUSPEND_FLAG(pAd, fRTMP_ADAPTER_SUSPEND_STATE_SUSPENDING);
-
-#ifdef RTMP_MAC_USB
-	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_POLL_IDLE);
-	usb_rx_cmd_msgs_receive(pAd);
-	RTUSBBulkReceive(pAd);
-#endif /* RTMP_MAC_USB */
-
-	andes_suspend_CR_setting(pAd);
+	DISABLE_TX_RX(pAd, RTMP_HALT);
 
 	if (IS_USB_INF(pAd)) {
 		RTMP_SEM_EVENT_WAIT(&pAd->hw_atomic, ret);
@@ -61,7 +56,6 @@ VOID RT65xxUsbAsicRadioOff(RTMP_ADAPTER *pAd, UCHAR Stage)
 	MCU_CTRL_EXIT(pAd);
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_IDLE_RADIO_OFF);
-	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_POLL_IDLE);
 
 	/* Stop bulkin pipe */
 	/* if((pAd->PendingRx > 0) && (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_NIC_NOT_EXIST))) */
@@ -81,7 +75,6 @@ VOID RT65xxUsbAsicRadioOn(RTMP_ADAPTER *pAd, UCHAR Stage)
 {
 	UINT32 MACValue = 0;
 	UINT32 ret;
-	UINT32 Value;
 
 	RTMP_CLEAR_PSFLAG(pAd, fRTMP_PS_MCU_SLEEP);
 #ifdef CONFIG_PM
@@ -121,6 +114,13 @@ VOID RT65xxUsbAsicRadioOn(RTMP_ADAPTER *pAd, UCHAR Stage)
 	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_RADIO_OFF);
 	RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_SUSPEND);
 
+	/* Send Bulkin IRPs after flag fRTMP_ADAPTER_IDLE_RADIO_OFF is cleared. */
+#ifdef CONFIG_STA_SUPPORT
+	IF_DEV_CONFIG_OPMODE_ON_STA(pAd) {
+		RTUSBBulkReceive(pAd);
+	}
+#endif /* CONFIG_STA_SUPPORT */
+
 	MCU_CTRL_INIT(pAd);
 
 	if (IS_USB_INF(pAd)) {
@@ -137,29 +137,11 @@ VOID RT65xxUsbAsicRadioOn(RTMP_ADAPTER *pAd, UCHAR Stage)
 		RTMP_SEM_EVENT_UP(&pAd->hw_atomic);
 	}
 
-	andes_resume_CR_setting(pAd, RADIO_OFF_TYPE);
-	DBGPRINT(RT_DEBUG_ERROR, ("andes_resume_CR_setting\n"));
-
 	RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_MCU_SEND_IN_BAND_CMD);
 
 	if (Stage == MLME_RADIO_ON)
 		PWR_SAVING_OP(pAd, RADIO_ON, 1, 0, 0, 0, 0);
 
-	/* MAC Tx/Rx shall be enable */
-	RTMP_IO_WRITE32(pAd, MAC_SYS_CTRL, 0x0c);
-	RTMP_IO_READ32(pAd, MAC_SYS_CTRL, &Value);
-	if (Value != 0x0c)
-		DBGPRINT(RT_DEBUG_ERROR, ("%s: ERROR!! MAC Tx/Rx not enable\n", __func__));
-#ifdef MT76x2
-	if (IS_MT76x2(pAd)) {
-		RTMP_IO_WRITE32(pAd, RLT_RF_SETTING_0, 0x0);
-		RTMP_IO_WRITE32(pAd, RLT_RF_BYPASS_0, 0x06000000);
-		RtmpOsMsDelay(5); /* avoid toggle not been excuted due to hw timing */
-		RTMP_IO_WRITE32(pAd, RLT_RF_BYPASS_0, 0x0);
-	}
-#endif /* MT76x2 */
-
-	RTMP_CLEAR_SUSPEND_FLAG(pAd, fRTMP_ADAPTER_SUSPEND_STATE_SUSPENDING);
 	DBGPRINT(RT_DEBUG_TRACE, ("<== %s\n", __func__));
 }
 #endif /* RTMP_USB_SUPPORT */

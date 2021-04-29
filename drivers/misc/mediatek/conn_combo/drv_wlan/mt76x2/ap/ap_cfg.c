@@ -1,14 +1,16 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ****************************************************************************
 
     Module Name:
@@ -1260,10 +1262,9 @@ static struct {
 #ifdef CONFIG_STA_SUPPORT
 	{
 	"ed_ap_scaned_th", set_ed_ap_scaned_count_proc}, {
-	"ed_current_ch_ap_th", set_ed_current_ch_ap_proc},
-#endif /* CONFIG_STA_SUPPORT */
-	{
+	"ed_current_ch_ap_th", set_ed_current_ch_ap_proc}, {
 	"ed_current_rssi_th", set_ed_current_rssi_threhold_proc},
+#endif /* CONFIG_STA_SUPPORT */
 	{
 	"ed_th", set_ed_threshold}, {
 	"ed_false_cca_th", set_ed_false_cca_threshold}, {

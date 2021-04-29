@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2013, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -225,53 +228,40 @@ BOOLEAN CFG80211_HandleP2pMgmtFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk, UCHAR OpM
 			     RTMP_CFG80211_FindVifEntry_ByType(pAd,
 							       RT_CMD_80211_IFTYPE_P2P_GO)) !=
 			    NULL) {
+				DBGPRINT(RT_DEBUG_INFO,
+					 ("VIF STA GO RtmpOsCFG80211RxMgmt OK!! TYPE = %d, freq = %d, %02x:%02x:%02x:%02x:%02x:%02x\n",
+					  pHeader->FC.SubType, freq, PRINT_MAC(pHeader->Addr2)));
 
-				DBGPRINT(RT_DEBUG_TRACE,
-					 ("VIF STA GO RtmpOsCFG80211RxMgmt OK!!\n"));
-				DBGPRINT(RT_DEBUG_TRACE,
-					 ("TYPE = %d, freq = %d, %02x:%02x:%02x:%02x:%02x:%02x, seq (%d)\n",
-						pHeader->FC.SubType, freq,
-						PRINT_MAC(pHeader->Addr2), pHeader->Sequence));
-
-				if ((RTMP_GetPrimaryCh(pAd, pAd->LatchRfRegs.Channel) == pAd->CommonCfg.Channel)
-					|| (pAd->CommonCfg.Channel == 0)) {
-					if (pHeader->FC.SubType == SUBTYPE_ACTION) {
-						if (CFG80211_CheckActionFrameType
-							(pAd, "CHECK", (PUCHAR)pHeader,
-							pRxWI->RXWI_N.MPDUtotalByteCnt) ==
-							P2P_ACTION_FRAME_TYPE)
-							res =
-							CFG80211OS_RxMgmt(pNetDev, freq,
-							(PUCHAR)pHeader,
-							pRxWI->RXWI_N.
-							MPDUtotalByteCnt);
-						else
-							res =
-							CFG80211OS_RxMgmt(CFG80211_GetEventDevice(pAd),
-							freq, (PUCHAR)pHeader,
-							pRxWI->RXWI_N.
-							MPDUtotalByteCnt);
-
-						if (res != TRUE)
-							DBGPRINT(RT_DEBUG_ERROR,
-							(" SUBTYPE_ACTION CFG80211OS_RxMgmt failed! (%02x:%02x:%02x:%02x:%02x:%02x)\n",
-							PRINT_MAC(pHeader->Addr2)));
-					} else if (pHeader->FC.SubType == SUBTYPE_PROBE_REQ)
+				if (pHeader->FC.SubType == SUBTYPE_ACTION) {
+					if (CFG80211_CheckActionFrameType
+					    (pAd, "CHECK", (PUCHAR) pHeader,
+					     pRxWI->RXWI_N.MPDUtotalByteCnt) ==
+					    P2P_ACTION_FRAME_TYPE)
 						res =
-						CFG80211OS_RxMgmt(pNetDev, freq, (PUCHAR)pHeader,
-						pRxWI->RXWI_N.MPDUtotalByteCnt);
+						    CFG80211OS_RxMgmt(pNetDev, freq,
+								      (PUCHAR) pHeader,
+								      pRxWI->RXWI_N.
+								      MPDUtotalByteCnt);
+					else
+						res =
+						    CFG80211OS_RxMgmt(CFG80211_GetEventDevice(pAd),
+								      freq, (PUCHAR) pHeader,
+								      pRxWI->RXWI_N.
+								      MPDUtotalByteCnt);
 
 					if (res != TRUE)
-						DBGPRINT(RT_DEBUG_TRACE,
-						("CFG80211OS_RxMgmt failed! (%02x:%02x:%02x:%02x:%02x:%02x)\n",
-						PRINT_MAC(pHeader->Addr2)));
-				} else {
-					DBGPRINT(RT_DEBUG_TRACE,
-						("Receive frame not from the P2P operation channel, ignore!!\n"));
-					DBGPRINT(RT_DEBUG_TRACE,
-						("RX Frame Chan=%d, P2P Chan=%d\n",
-						pAd->LatchRfRegs.Channel, pAd->CommonCfg.Channel));
-				}
+						DBGPRINT(RT_DEBUG_ERROR,
+							 (" SUBTYPE_ACTION CFG80211OS_RxMgmt failed! (%02x:%02x:%02x:%02x:%02x:%02x)\n",
+							  PRINT_MAC(pHeader->Addr2)));
+				} else if (pHeader->FC.SubType == SUBTYPE_PROBE_REQ)
+					res =
+					    CFG80211OS_RxMgmt(pNetDev, freq, (PUCHAR) pHeader,
+							      pRxWI->RXWI_N.MPDUtotalByteCnt);
+				if (res != TRUE)
+					DBGPRINT(RT_DEBUG_INFO,
+						 ("CFG80211OS_RxMgmt failed! (%02x:%02x:%02x:%02x:%02x:%02x)\n",
+						  PRINT_MAC(pHeader->Addr2)));
+
 				if (OpMode == OPMODE_AP)
 					return TRUE;
 			}
@@ -282,10 +272,9 @@ BOOLEAN CFG80211_HandleP2pMgmtFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk, UCHAR OpM
 		     (pCfg80211_ctrl->cfg80211MainDev.Cfg80211RegisterProbeReqFrame == TRUE)) ||
 		    ((pHeader->FC.SubType ==
 		      SUBTYPE_ACTION) /*&& ( pAd->Cfg80211RegisterActionFrame == TRUE) */)) {
-			DBGPRINT(RT_DEBUG_TRACE, ("MAIN STA RtmpOsCFG80211RxMgmt OK!!"));
-			DBGPRINT(RT_DEBUG_TRACE,
-				 ("TYPE = %d, freq = %d, %02x:%02x:%02x:%02x:%02x:%02x\n",
-					pHeader->FC.SubType, freq, PRINT_MAC(pHeader->Addr2)));
+			DBGPRINT(RT_DEBUG_INFO,
+				 ("MAIN STA RtmpOsCFG80211RxMgmt OK!! TYPE = %d, freq = %d, %02x:%02x:%02x:%02x:%02x:%02x\n",
+				  pHeader->FC.SubType, freq, PRINT_MAC(pHeader->Addr2)));
 			if (CFG80211_GetEventDevice(pAd) == NULL) {	/* Fix crash problem when hostapd boot up. */
 				DBGPRINT(RT_DEBUG_ERROR, ("Not Ready for p2p0 netdevice\n"));
 				return FALSE;

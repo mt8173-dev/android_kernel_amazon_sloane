@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2013, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -39,8 +40,9 @@ VOID CFG80211DRV_OpsScanInLinkDownAction(VOID *pAdOrg)
 	RTMPCancelTimer(&pAd->MlmeAux.ScanTimer, &Cancelled);
 	pAd->MlmeAux.Channel = 0;
 
+	pAd->cfg80211_ctrl.FlgCfg80211Scanning = FALSE;
 	CFG80211OS_ScanEnd(pAd->pCfg80211_CB, TRUE);
-	pAd->cfg80211_ctrl.Cfg80211CurChanIndex = pAd->cfg80211_ctrl.Cfg80211ChanListLen;
+
 	ScanNextChannel(pAd, OPMODE_STA);
 	DBGPRINT(RT_DEBUG_TRACE, ("<--- CFG80211_MLME Disconnect in Scan END, ORI ==> %lu\n",
 				  pAd->Mlme.CntlMachine.CurrState));
@@ -54,20 +56,15 @@ BOOLEAN CFG80211DRV_OpsScanRunning(VOID *pAdOrg)
 #endif /*CONFIG_STA_SUPPORT */
 
 /* Refine on 2013/04/30 for two functin into one */
-INT CFG80211DRV_OpsScanGetNextChannel(VOID *pAdOrg, BOOLEAN pending)
+INT CFG80211DRV_OpsScanGetNextChannel(VOID *pAdOrg)
 {
 	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER) pAdOrg;
 	PCFG80211_CTRL cfg80211_ctrl = &pAd->cfg80211_ctrl;
 
 	if (cfg80211_ctrl->pCfg80211ChanList != NULL) {
 		if (cfg80211_ctrl->Cfg80211CurChanIndex < cfg80211_ctrl->Cfg80211ChanListLen) {
-			if (pending) {
-				return cfg80211_ctrl->pCfg80211ChanList[cfg80211_ctrl->
-								Cfg80211CurChanIndex];
-			} else {
 			return cfg80211_ctrl->pCfg80211ChanList[cfg80211_ctrl->
 								Cfg80211CurChanIndex++];
-			}
 		} else {
 			os_free_mem(NULL, cfg80211_ctrl->pCfg80211ChanList);
 			cfg80211_ctrl->pCfg80211ChanList = NULL;
@@ -113,11 +110,6 @@ BOOLEAN CFG80211DRV_OpsScanCheckStatus(VOID *pAdOrg, UINT8 IfType)
 	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER) pAdOrg;
 
 	/* CFG_TODO */
-	if (pAd->MlmeAux.ScanDisable) {
-		CFG80211DBG(RT_DEBUG_ERROR, ("SCAN_FAIL: scan disabled\n"));
-		return FALSE;
-	}
-
 	if (CFG80211DRV_OpsScanRunning(pAd)) {
 		CFG80211DBG(RT_DEBUG_ERROR, ("SCAN_FAIL: CFG80211 Internal SCAN Flag On\n"));
 		return FALSE;
@@ -293,6 +285,8 @@ BOOLEAN CFG80211DRV_OpsScanExtraIesSet(VOID *pAdOrg)
 	CFG80211DBG(RT_DEBUG_INFO, ("80211> is_wpa_supplicant_up ==> %d\n",
 				    pAd->StaCfg.wpa_supplicant_info.WpaSupplicantUP));
 #endif /*CONFIG_STA_SUPPORT */
+	if (ie_len == 0)
+		return FALSE;
 
 	/* Reset the ExtraIe and Len */
 	if (cfg80211_ctrl->pExtraIe) {
@@ -300,14 +294,6 @@ BOOLEAN CFG80211DRV_OpsScanExtraIesSet(VOID *pAdOrg)
 		cfg80211_ctrl->pExtraIe = NULL;
 	}
 	cfg80211_ctrl->ExtraIeLen = 0;
-
-	if (ie_len == 0) {
-		DBGPRINT(RT_DEBUG_TRACE,
-			 ("80211> ExtraIEs Null in ProbeRequest from upper layer...\n"));
-		return FALSE;
-	}
-	DBGPRINT(RT_DEBUG_TRACE,
-		 ("80211> ExtraIEs Not Null in ProbeRequest from upper layer...\n"));
 
 	os_alloc_mem(pAd, (UCHAR **) &(cfg80211_ctrl->pExtraIe), ie_len);
 	if (cfg80211_ctrl->pExtraIe) {
@@ -379,14 +365,8 @@ static void CFG80211_UpdateBssTableRssi(IN VOID *pAdCB)
 			/* ScanTable Entry not exist in kernel buffer */
 		} else {
 			/* HIT */
-			if (INFRA_ON(pAd) && MAC_ADDR_EQUAL(pAd->MlmeAux.Bssid, bss->bssid))
-				bss->signal = pAd->StaCfg.StaRssi * 100;
-			else {
-				CFG80211_CalBssAvgRssi(pBssEntry);
-				bss->signal = pBssEntry->AvgRssi * 100;	/* UNIT: MdBm */
-			}
-			CFG80211DBG(RT_DEBUG_INFO,
-				("bss %02x:%02x:%02x:%02x:%02x:%02x signal %d\n", PRINT_MAC(bss->bssid), bss->signal));
+			CFG80211_CalBssAvgRssi(pBssEntry);
+			bss->signal = pBssEntry->AvgRssi * 100;	/* UNIT: MdBm */
 			cfg80211_put_bss(pWiphy, bss);
 		}
 	}
@@ -515,6 +495,7 @@ VOID CFG80211_ScanEnd(IN VOID *pAdCB, IN BOOLEAN FlgIsAborted)
 		Start_MCC(pAd);
 	}
 #endif /* CONFIG_MULTI_CHANNEL */
+	pAd->cfg80211_ctrl.FlgCfg80211Scanning = FALSE;
 #endif /* CONFIG_STA_SUPPORT */
 }
 

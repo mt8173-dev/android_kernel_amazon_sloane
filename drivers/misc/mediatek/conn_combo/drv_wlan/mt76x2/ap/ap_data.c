@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -392,7 +395,6 @@ INT APSendPacket(RTMP_ADAPTER *pAd, PNDIS_PACKET pPacket)
 	}
 	/* M/BCAST frames are put to PSQ as long as there's any associated STA in power-save mode */
 	else if ((*pSrcBufVA & 0x01) && pAd->MacTab.fAnyStationInPsm
-		&& (!(IS_MULTICAST_MAC_ADDR(pSrcBufVA) && pAd->mcast_ignore_ps))
 #ifdef IGMP_SNOOP_SUPPORT
 		 /* multicast packets in IgmpSn table should never send to Power-Saving queue. */
 		 && (!InIgmpGroup)
@@ -2223,11 +2225,6 @@ static VOID AP_Legacy_Frame_Tx(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
 	}
 #endif /* WDS_SUPPORT */
 #endif /* STATS_COUNT_SUPPORT */
-	/* GO Case: OFDM (54/48/36/24/18/9/6) duration set to 60us for IOT */
-	if (pTxBlk->pTransmit->field.MODE == MODE_OFDM) {
-		pTxBlk->FrameGap = IFS_BACKOFF;
-		wifi_hdr->Duration = 60;
-	}
 
 	/*
 	   prepare for TXWI
@@ -4230,12 +4227,6 @@ VOID APHandleRxDataFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 	if (pRxInfo->U2M) {
 		Update_Rssi_Sample(pAd, &pAd->ApCfg.RssiSample, pRxWI);
 		pAd->ApCfg.NumOfAvgRssiSample++;
-		if (RTMP_CFG80211_VIF_P2P_GO_ON(pAd)) {
-			MAC_TABLE_ENTRY *pP2pEntry = NULL;
-			pP2pEntry = MacTableLookup(pAd, pHeader->Addr2);
-			if (pP2pEntry)
-				Update_Rssi_Sample(pAd, &pP2pEntry->RssiSample, pRxWI);
-		}
 
 #ifdef DBG_DIAGNOSE
 		if (pAd->DiagStruct.inited) {
@@ -4561,42 +4552,6 @@ VOID APHandleRxDataFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
 		pRxInfo->Decrypted = 1;
 	}
 #endif /* SOFT_ENCRYPT */
-	do {
-		/* Store hw padded IV/EIV (if any) and move pRxBlk->pData.
-		 *
-		 * @pRxBlk: rx descriptor block
-		 * @pRxInfo: rxinfo in rxblk hw_rx_info
-		 * @pRxWI: rxwi in pRxPacket
-		 */
-		UINT32 pn_len_byte;
-
-		if (!pRxInfo->pn_len) {
-			DBGPRINT(RT_DEBUG_OFF, ("no IV/EIV padded\n"));
-			break; /* no IV/EIV padding */
-		}
-
-		pn_len_byte = pRxInfo->pn_len * 4;
-		if (unlikely(pRxBlk->DataSize <= pn_len_byte)) {
-			/* not enough data */
-			DBGPRINT(RT_DEBUG_ERROR, ("DataSize %u <= pn_len %u\n",
-				pRxBlk->DataSize, pn_len_byte));
-			goto err; /* give up this frame */
-		}
-
-		if (unlikely(sizeof(pRxBlk->eiv_pn) <= pn_len_byte)) {
-			/* not enough eiv_pn buffer */
-			DBGPRINT(RT_DEBUG_ERROR,
-				("pRxBlk->eiv_pn size %zu <= pn_len %u\n",
-				sizeof(pRxBlk->eiv_pn), pn_len_byte));
-			goto err; /* give up this frame */
-		}
-
-		/* store padded IV/EIV in rxblk */
-		memcpy(pRxBlk->eiv_pn, pRxBlk->pData, pn_len_byte);
-		/* move pRxBlk->pData pointer */
-		pRxBlk->pData += pn_len_byte;
-		pRxBlk->DataSize -= pn_len_byte;
-	} while (0);
 
 	if (!((pHeader->Frag == 0) && (pFmeCtrl->MoreFrag == 0))) {
 		/*

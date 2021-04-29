@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology	5th	Rd.
+ * Science-based Industrial	Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work	and	the
+ * use of a	copyright notice does not imply	otherwise. This	source code
+ * contains	confidential trade secret material of Ralink Tech. Any attemp
+ * or participation	in deciphering,	decoding, reverse engineering or in	any
+ * way altering	the	source code	is stricitly prohibited, unless	the	prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -365,8 +368,8 @@ typedef enum _PROT_REG_IDX_ {
 } PROT_REG_IDX;
 
 VOID AsicUpdateProtect(IN PRTMP_ADAPTER pAd,
-	IN USHORT OperationMode,
-	IN UCHAR SetMask, IN BOOLEAN bDisableBGProtect, IN BOOLEAN bNonGFExist)
+		       IN USHORT OperationMode,
+		       IN UCHAR SetMask, IN BOOLEAN bDisableBGProtect, IN BOOLEAN bNonGFExist)
 {
 	PROT_CFG_STRUC ProtCfg, ProtCfg4;
 	UINT32 Protect[6], PhyMode = 0x4000;
@@ -375,7 +378,7 @@ VOID AsicUpdateProtect(IN PRTMP_ADAPTER pAd,
 	UINT32 MacReg = 0;
 #ifdef DOT11_VHT_AC
 #ifdef RT65xx
-	PROT_CFG_STRUC vht_port_cfg = { .word = 0 };
+	PROT_CFG_STRUC vht_port_cfg = {.word = 0 };
 	UINT16 protect_rate = 0;
 #endif /* RT65xx */
 #endif /* DOT11_VHT_AC */
@@ -385,9 +388,6 @@ VOID AsicUpdateProtect(IN PRTMP_ADAPTER pAd,
 		return;
 #endif /* RALINK_ATE */
 
-	DBGPRINT(RT_DEBUG_INFO,
-		("%s():pAd->CommonCfg.bHTProtect=%d, OperationMode=%d, bDisableBGProtect=%d, SetMask=%d\n",
-		__func__, pAd->CommonCfg.bHTProtect, OperationMode, bDisableBGProtect, SetMask));
 	if (!(pAd->CommonCfg.bHTProtect) && (OperationMode != 8))
 		return;
 
@@ -397,35 +397,19 @@ VOID AsicUpdateProtect(IN PRTMP_ADAPTER pAd,
 		OperationMode = 8;
 	}
 
-	/* Force to disable the CTS*/
-#ifdef CONFIG_AP_SUPPORT
-#ifdef MCAST_RATE_SPECIFIC
-	if (pAd->CommonCfg.bDisableCTS) {
-		SetMask |= ALLN_SETPROTECT;
-		bDisableBGProtect = 1;
-		OperationMode = 0;
+	/* Config ASIC RTS threshold register */
+	RTMP_IO_READ32(pAd, TX_RTS_CFG, &MacReg);
+	MacReg &= 0xFF0000FF;
+	/* If the user want disable RtsThreshold and enbale Amsdu/Ralink-Aggregation, set the RtsThreshold as 4096 */
+	if (((pAd->CommonCfg.BACapability.field.AmsduEnable) ||
+	     (pAd->CommonCfg.bAggregationCapable == TRUE))
+	    && pAd->CommonCfg.RtsThreshold == MAX_RTS_THRESHOLD) {
+		MacReg |= (0x1000 << 8);
+	} else {
+		MacReg |= (pAd->CommonCfg.RtsThreshold << 8);
 	}
-#endif
-#endif
 
-	if (!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)) {
-		/* Config ASIC RTS threshold register */
-		RTMP_IO_READ32(pAd, TX_RTS_CFG, &MacReg);
-		MacReg &= 0xFF0000FF;
-		/*
-		 * If the user want disable RtsThreshold and enbale Amsdu/Ralink-Aggregation,
-		 * set the RtsThreshold as 4096
-		 */
-		if (((pAd->CommonCfg.BACapability.field.AmsduEnable) ||
-		     (pAd->CommonCfg.bAggregationCapable == TRUE))
-		    && pAd->CommonCfg.RtsThreshold == MAX_RTS_THRESHOLD) {
-			MacReg |= (0x1000 << 8);
-		} else {
-			MacReg |= (pAd->CommonCfg.RtsThreshold << 8);
-		}
-
-		RTMP_IO_WRITE32(pAd, TX_RTS_CFG, MacReg);
-	}
+	RTMP_IO_WRITE32(pAd, TX_RTS_CFG, MacReg);
 
 	/* Initial common protection settings */
 	RTMPZeroMemory(Protect, sizeof(Protect));
@@ -444,9 +428,7 @@ VOID AsicUpdateProtect(IN PRTMP_ADAPTER pAd,
 #ifdef RT65xx
 	/* TODO: shiang, is that a correct way to set 0x2000 here?? */
 	if (IS_RT65XX(pAd))
-		PhyMode = 0x2000;
-		/* Bit 15:13, 0:Legacy CCK, 1: Legacy OFDM, 2: HT mix mode,
-		   3: HT green field, 4: VHT mode, 5-7: Reserved */
+		PhyMode = 0x2000;	/* Bit 15:13, 0:Legacy CCK, 1: Legacy OFDM, 2: HT mix mode, 3: HT green field, 4: VHT mode, 5-7: Reserved */
 #endif /* RT65xx */
 #endif /* DOT11_VHT_AC */
 
@@ -505,7 +487,6 @@ VOID AsicUpdateProtect(IN PRTMP_ADAPTER pAd,
 	}
 
 	/* Decide HT frame protection. */
-	DBGPRINT(RT_DEBUG_INFO, ("%s() :OperationMode=%d, SetMask=%d\n", __func__, OperationMode, SetMask));
 	if ((SetMask & ALLN_SETPROTECT) != 0) {
 		switch (OperationMode) {
 		case 0x0:
@@ -886,15 +867,13 @@ VOID AsicSwitchChannel(RTMP_ADAPTER *pAd, UCHAR Channel, BOOLEAN bScan)
 	QBSS_LoadStatusClear(pAd);
 #endif /* AP_QLOAD_SUPPORT */
 #endif /* CONFIG_AP_SUPPORT */
-	pAd->CommonCfg.ChSwitchState = SWITCHING;
-	if (!bScan)
-		Disable_netifQ(pAd);
+
 	if (pAd->chipOps.ChipSwitchChannel)
 		pAd->chipOps.ChipSwitchChannel(pAd, Channel, bScan);
 	else
 		DBGPRINT(RT_DEBUG_ERROR,
 			 ("For this chip, no specified channel switch function!\n"));
-	pAd->CommonCfg.ChSwitchState = SWITCHED;
+
 	/* R66 should be set according to Channel and use 20MHz when scanning */
 	if (bScan)
 		bw = BW_20;
@@ -913,14 +892,13 @@ VOID AsicSwitchChannel(RTMP_ADAPTER *pAd, UCHAR Channel, BOOLEAN bScan)
 		RTMP_IO_READ32(pAd, TXO_R4, &value32);
 		value32 |= 0x2000000;
 		RTMP_IO_WRITE32(pAd, TXO_R4, value32);
+
+		/* Enable SIG-B CRC check */
+		RTMP_IO_READ32(pAd, RXO_R13, &value32);
+		value32 |= 0x100;
+		RTMP_IO_WRITE32(pAd, RXO_R13, value32);
 	}
 #endif /* MT76x2 */
-	if (!bScan
-#ifdef ED_MONITOR
-		&& !pAd->ed_tx_stoped && pAd->ed_fix
-#endif
-	)
-		Enable_netifQ(pAd);
 #endif /* TXBF_SUPPORT */
 }
 
@@ -1375,64 +1353,6 @@ INT AsicSetGPTimer(RTMP_ADAPTER *pAd, BOOLEAN enable, UINT32 timeout)
 	return AsicSetIntTimerEn(pAd, enable, INT_TIMER_EN_GP_TIMER, timeout);
 }
 
-VOID AsicDisableBeacon(IN PRTMP_ADAPTER pAd)
-{
-	u32 ret;
-	PNET_DEV pNetDev = RTMP_CFG80211_FindVifEntry_ByType(pAd,
-		RT_CMD_80211_IFTYPE_P2P_GO);
-	if (pNetDev) {
-		BCN_TIME_CFG_STRUC csr;
-		DBGPRINT(RT_DEBUG_TRACE, ("Disable beacon for %s\n", pNetDev->name));
-#ifdef RTMP_MAC_USB
-		if (IS_USB_INF(pAd)) {
-			RTMP_SEM_EVENT_WAIT(&pAd->bcn_time_atomic, ret);
-			if (ret != 0) {
-				DBGPRINT(RT_DEBUG_ERROR, ("bcn_time_atomic get failed(ret=%d)\n", ret));
-				return;
-			}
-		}
-#endif /* RTMP_MAC_USB */
-		/*disable beacon*/
-		RTMP_IO_READ32(pAd, BCN_TIME_CFG, &csr.word);
-		csr.field.bBeaconGen = 0;
-		RTMP_IO_WRITE32(pAd, BCN_TIME_CFG, csr.word);
-#ifdef RTMP_MAC_USB
-		if (IS_USB_INF(pAd)) {
-			RTMP_SEM_EVENT_UP(&pAd->bcn_time_atomic);
-		}
-#endif /* RTMP_MAC_USB */
-	}
-}
-
-VOID AsicEnableBeacon(IN PRTMP_ADAPTER pAd)
-{
-	u32 ret;
-	PNET_DEV pNetDev = RTMP_CFG80211_FindVifEntry_ByType(pAd,
-		RT_CMD_80211_IFTYPE_P2P_GO);
-	if (pNetDev) {
-		BCN_TIME_CFG_STRUC csr;
-		DBGPRINT(RT_DEBUG_TRACE, ("Enable beacon fo %s\n", pNetDev->name));
-#ifdef RTMP_MAC_USB
-		if (IS_USB_INF(pAd)) {
-			RTMP_SEM_EVENT_WAIT(&pAd->bcn_time_atomic, ret);
-			if (ret != 0) {
-				DBGPRINT(RT_DEBUG_ERROR, ("bcn_time_atomic get failed(ret=%d)\n", ret));
-				return;
-			}
-		}
-#endif /* RTMP_MAC_USB */
-		/*enable beacon*/
-		RTMP_IO_READ32(pAd, BCN_TIME_CFG, &csr.word);
-		csr.field.bBeaconGen = 1;
-		RTMP_IO_WRITE32(pAd, BCN_TIME_CFG, csr.word);
-#ifdef RTMP_MAC_USB
-		if (IS_USB_INF(pAd)) {
-			RTMP_SEM_EVENT_UP(&pAd->bcn_time_atomic);
-		}
-#endif /* RTMP_MAC_USB */
-	}
-}
-
 /*
 	==========================================================================
 	Description:
@@ -1445,19 +1365,8 @@ VOID AsicEnableBeacon(IN PRTMP_ADAPTER pAd)
 VOID AsicDisableSync(IN PRTMP_ADAPTER pAd)
 {
 	BCN_TIME_CFG_STRUC csr;
-	u32 ret;
 
 	DBGPRINT(RT_DEBUG_TRACE, ("--->Disable TSF synchronization\n"));
-
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_WAIT(&pAd->bcn_time_atomic, ret);
-		if (ret != 0) {
-			DBGPRINT(RT_DEBUG_ERROR, ("bcn_time_atomic get failed(ret=%d)\n", ret));
-			return;
-		}
-	}
-#endif /* RTMP_MAC_USB */
 
 	pAd->TbttTickCount = 0;
 	RTMP_IO_READ32(pAd, BCN_TIME_CFG, &csr.word);
@@ -1467,11 +1376,6 @@ VOID AsicDisableSync(IN PRTMP_ADAPTER pAd)
 	csr.field.bTsfTicking = 0;
 	RTMP_IO_WRITE32(pAd, BCN_TIME_CFG, csr.word);
 
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_UP(&pAd->bcn_time_atomic);
-	}
-#endif /* RTMP_MAC_USB */
 }
 
 /*
@@ -1485,19 +1389,8 @@ VOID AsicDisableSync(IN PRTMP_ADAPTER pAd)
 VOID AsicEnableBssSync(IN PRTMP_ADAPTER pAd)
 {
 	BCN_TIME_CFG_STRUC csr;
-	u32 ret;
 
 	DBGPRINT(RT_DEBUG_TRACE, ("--->AsicEnableBssSync(INFRA mode)\n"));
-
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_WAIT(&pAd->bcn_time_atomic, ret);
-		if (ret != 0) {
-			DBGPRINT(RT_DEBUG_ERROR, ("bcn_time_atomic get failed(ret=%d)\n", ret));
-			return;
-		}
-	}
-#endif /* RTMP_MAC_USB */
 
 	RTMP_IO_READ32(pAd, BCN_TIME_CFG, &csr.word);
 /*	RTMP_IO_WRITE32(pAd, BCN_TIME_CFG, 0x00000000);*/
@@ -1520,31 +1413,14 @@ VOID AsicEnableBssSync(IN PRTMP_ADAPTER pAd)
 	}
 #endif /* CONFIG_STA_SUPPORT */
 	RTMP_IO_WRITE32(pAd, BCN_TIME_CFG, csr.word);
-
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_UP(&pAd->bcn_time_atomic);
-	}
-#endif /* RTMP_MAC_USB */
 }
 
 /*CFG_TODO*/
 VOID AsicEnableApBssSync(IN PRTMP_ADAPTER pAd)
 {
 	BCN_TIME_CFG_STRUC csr;
-	u32 ret;
 
 	DBGPRINT(RT_DEBUG_TRACE, ("--->AsicEnableBssSync(INFRA mode)\n"));
-
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_WAIT(&pAd->bcn_time_atomic, ret);
-		if (ret != 0) {
-			DBGPRINT(RT_DEBUG_ERROR, ("bcn_time_atomic get failed(ret=%d)\n", ret));
-			return;
-		}
-	}
-#endif /* RTMP_MAC_USB */
 
 	RTMP_IO_READ32(pAd, BCN_TIME_CFG, &csr.word);
 
@@ -1555,12 +1431,6 @@ VOID AsicEnableApBssSync(IN PRTMP_ADAPTER pAd)
 	csr.field.bTBTTEnable = 1;
 
 	RTMP_IO_WRITE32(pAd, BCN_TIME_CFG, csr.word);
-
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_UP(&pAd->bcn_time_atomic);
-	}
-#endif /* RTMP_MAC_USB */
 }
 
 #ifdef CONFIG_STA_SUPPORT
@@ -1585,7 +1455,6 @@ VOID AsicEnableIbssSync(RTMP_ADAPTER *pAd)
 	USHORT beaconLen = 0;
 	UINT8 TXWISize = pAd->chipCap.TXWISize;
 	UINT32 longptr;
-	u32 ret;
 
 #ifdef RLT_MAC
 	if (pAd->chipCap.hif_type == HIF_RLT) {
@@ -1618,16 +1487,6 @@ VOID AsicEnableIbssSync(RTMP_ADAPTER *pAd)
 #endif /* RT_BIG_ENDIAN */
 
 	DBGPRINT(RT_DEBUG_TRACE, ("--->AsicEnableIbssSync(ADHOC mode, beaconLen=%d)\n", beaconLen));
-
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_WAIT(&pAd->bcn_time_atomic, ret);
-		if (ret != 0) {
-			DBGPRINT(RT_DEBUG_ERROR, ("bcn_time_atomic get failed(ret=%d)\n", ret));
-			return;
-		}
-	}
-#endif /* RTMP_MAC_USB */
 
 	RTMP_IO_READ32(pAd, BCN_TIME_CFG, &csr9.word);
 	csr9.field.bBeaconGen = 0;
@@ -1681,12 +1540,6 @@ VOID AsicEnableIbssSync(RTMP_ADAPTER *pAd)
 	csr9.field.bTBTTEnable = 1;
 	csr9.field.bBeaconGen = 1;
 	RTMP_IO_WRITE32(pAd, BCN_TIME_CFG, csr9.word);
-
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_UP(&pAd->bcn_time_atomic);
-	}
-#endif /* RTMP_MAC_USB */
 }
 #endif /* CONFIG_STA_SUPPORT */
 
@@ -1808,36 +1661,19 @@ VOID AsicSetEdcaParm(RTMP_ADAPTER *pAd, PEDCA_PARM pEdcaParm)
 		Ac0Cfg.field.Cwmax = pEdcaParm->Cwmax[QID_AC_BE];
 		Ac0Cfg.field.Aifsn = pEdcaParm->Aifsn[QID_AC_BE];	/*+1; */
 
-		/* Adjust BK parameters for passing N-5.2.28 T6 and N-5.2.29 T6.
-		 * N-5.2.27~N-5.2.34 could pass after this adjustment.
-		 */
-		if (SIGMA_ON(pAd)) {
-			Ac1Cfg.field.AcTxop = pEdcaParm->Txop[QID_AC_BK];
-			Ac1Cfg.field.Cwmin = pEdcaParm->Cwmin[QID_AC_BK] + 2;
-			Ac1Cfg.field.Cwmax = pEdcaParm->Cwmax[QID_AC_BK];
-			Ac1Cfg.field.Aifsn = pEdcaParm->Aifsn[QID_AC_BK] + 2;
+		Ac1Cfg.field.AcTxop = pEdcaParm->Txop[QID_AC_BK];
+		Ac1Cfg.field.Cwmin = pEdcaParm->Cwmin[QID_AC_BK];	/*+2; */
+		Ac1Cfg.field.Cwmax = pEdcaParm->Cwmax[QID_AC_BK];
+		Ac1Cfg.field.Aifsn = pEdcaParm->Aifsn[QID_AC_BK];	/*+1; */
 
-		} else {
-			Ac1Cfg.field.AcTxop = pEdcaParm->Txop[QID_AC_BK];
-			Ac1Cfg.field.Cwmin = pEdcaParm->Cwmin[QID_AC_BK];
-			Ac1Cfg.field.Cwmax = pEdcaParm->Cwmax[QID_AC_BK];
-			Ac1Cfg.field.Aifsn = pEdcaParm->Aifsn[QID_AC_BK];
-		}
 
-		/* Adjust VI parameters for passing N-5.2.28 T7 and N-5.2.29 T7,
-		 * N-5.2.27~N-5.2.34 could pass after this adjustment.
-		 */
-		if (SIGMA_ON(pAd)) {
-			Ac2Cfg.field.AcTxop = (pEdcaParm->Txop[QID_AC_VI] * 5) / 10;
-			Ac2Cfg.field.Cwmin = pEdcaParm->Cwmin[QID_AC_VI] + 1;
-			Ac2Cfg.field.Cwmax = pEdcaParm->Cwmax[QID_AC_VI] + 1;
-			Ac2Cfg.field.Aifsn = pEdcaParm->Aifsn[QID_AC_VI] + 2;
-		} else {
-			Ac2Cfg.field.AcTxop = (pEdcaParm->Txop[QID_AC_VI] * 6) / 10;
+		Ac2Cfg.field.AcTxop = (pEdcaParm->Txop[QID_AC_VI] * 6) / 10;
+		{
 			Ac2Cfg.field.Cwmin = pEdcaParm->Cwmin[QID_AC_VI];
 			Ac2Cfg.field.Cwmax = pEdcaParm->Cwmax[QID_AC_VI];
-			Ac2Cfg.field.Aifsn = pEdcaParm->Aifsn[QID_AC_VI] + 1;
 		}
+		/*sync with window 20110524 */
+		Ac2Cfg.field.Aifsn = pEdcaParm->Aifsn[QID_AC_VI] + 1;	/* 5.2.27 T6 Pass Tx VI+BE, but will impack 5.2.27/28 T7. Tx VI */
 
 #ifdef INF_AMAZON_SE
 #ifdef CONFIG_AP_SUPPORT
@@ -3147,7 +2983,7 @@ INT AsicReadAggCnt(RTMP_ADAPTER *pAd, ULONG *aggCnt, int cnt_len)
 			if (cnt < (cnt_len - 1)) {
 				aggCnt[cnt] = reg_val.field.AggCnt_x;
 				aggCnt[cnt + 1] = reg_val.field.AggCnt_y;
-				DBGPRINT(RT_DEBUG_INFO,
+				DBGPRINT(RT_DEBUG_TRACE,
 					 ("%s():Get AggSize at Reg(0x%x) with val(0x%08x) [AGG_%d=>%ld, AGG_%d=>%ld]\n",
 					  __func__, reg_addr, reg_val.word, cnt, aggCnt[cnt],
 					  cnt + 1, aggCnt[cnt + 1]));
@@ -3182,8 +3018,7 @@ INT AsicSetChannel(RTMP_ADAPTER *pAd, UCHAR ch, UINT8 bw, UINT8 ext_ch, BOOLEAN 
 	return 0;
 }
 
-
-#if defined(MAC_APCLI_SUPPORT) || defined(STA_P2P_CONNCURRENT)
+#ifdef MAC_APCLI_SUPPORT
 /*
 	==========================================================================
 	Description:

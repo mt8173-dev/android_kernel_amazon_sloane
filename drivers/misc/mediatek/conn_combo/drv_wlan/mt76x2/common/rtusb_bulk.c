@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology	5th	Rd.
+ * Science-based Industrial	Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2006, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work	and	the
+ * use of a	copyright notice does not imply	otherwise. This	source code
+ * contains	confidential trade secret material of Ralink Tech. Any attemp
+ * or participation	in deciphering,	decoding, reverse engineering or in	any
+ * way altering	the	source code	is stricitly prohibited, unless	the	prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -318,7 +321,7 @@ VOID RTUSBBulkOutDataPacket(RTMP_ADAPTER *pAd, UCHAR BulkOutPipeId, UCHAR Index)
 			DBGPRINT(RT_DEBUG_TRACE, ("Block bulkout due to suspending\n"));
 		else if (pAd->BulkOutPending[BulkOutPipeId] == TRUE) {
 			if (((BulkoutPendingCnt++) & 0x7F) == 0x7F) {
-				DBGPRINT(RT_DEBUG_TRACE, ("Bulkout pending[%d]=%d, count=%d\n",
+				DBGPRINT(RT_DEBUG_ERROR, ("Bulkout pending[%d]=%d, count=%d\n",
 							  BulkOutPipeId,
 							  pAd->BulkOutPending[BulkOutPipeId],
 							  BulkoutPendingCnt));
@@ -582,6 +585,20 @@ VOID RTUSBBulkOutDataPacket(RTMP_ADAPTER *pAd, UCHAR BulkOutPipeId, UCHAR Index)
 			pHTTXContext->ENextBulkOutPosition = TmpBulkEndPos;
 			break;
 		}
+#ifndef CONFIG_MULTI_CHANNEL
+		if (pTxInfo->TxInfoQSEL != FIFO_EDCA) {
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("%s(): ====> pTxInfo->QueueSel(%d)!= FIFO_EDCA!!!!\n",
+				  __func__, pTxInfo->TxInfoQSEL));
+			DBGPRINT(RT_DEBUG_ERROR,
+				 ("\tCWPos=%ld, NBPos=%ld, ENBPos=%ld, bCopy=%d!\n",
+				  pHTTXContext->CurWritePosition, pHTTXContext->NextBulkOutPosition,
+				  pHTTXContext->ENextBulkOutPosition, pHTTXContext->bCopySavePad));
+			hex_dump("Wrong QSel Pkt:", (PUCHAR) &pWirelessPkt[TmpBulkEndPos],
+				 (pHTTXContext->CurWritePosition -
+				  pHTTXContext->NextBulkOutPosition));
+		}
+#endif /* CONFIG_MULTI_CHANNEL */
 
 		if (pTxInfo->TxInfoPktLen <= 8) {
 			BULK_OUT_UNLOCK(&pAd->TxContextQueueLock[BulkOutPipeId], IrqFlags2);
@@ -612,8 +629,7 @@ VOID RTUSBBulkOutDataPacket(RTMP_ADAPTER *pAd, UCHAR BulkOutPipeId, UCHAR Index)
 
 #ifndef CONFIG_MULTI_CHANNEL
 		/* Make sure we use EDCA QUEUE.  */
-		if (pTxInfo->TxInfoQSEL != FIFO_MGMT)
-			pTxInfo->TxInfoQSEL = FIFO_EDCA;
+		pTxInfo->TxInfoQSEL = FIFO_EDCA;
 #endif /* !CONFIG_MULTI_CHANNEL */
 
 		ThisBulkSize += (pTxInfo->TxInfoPktLen + 4);
@@ -1379,19 +1395,9 @@ static void RTUSBDataBulkOut(PRTMP_ADAPTER pAd, ULONG bulkFlag, INT epIdx)
 		     /* CFG_TODO */
 		     || RTMP_CFG80211_VIF_P2P_GO_ON(pAd) || RTMP_CFG80211_VIF_P2P_CLI_ON(pAd)
 #endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */
-#ifdef NEW_WOW_SUPPORT
-			) && (!((pAd->WOW_Cfg.bInSuspendMode) & WOW_SUSPEND_COMPLETE))
-#endif
-			 && ((pAd->CommonCfg.BBPCurrentBW == BW_20
-			 && pAd->LatchRfRegs.Channel == pAd->CommonCfg.Channel)
-			 || (pAd->CommonCfg.BBPCurrentBW != BW_20
-			 && RTMP_GetPrimaryCh(pAd, pAd->LatchRfRegs.Channel) == pAd->CommonCfg.Channel)
-			 || pAd->CommonCfg.Channel == 0)
-		    ) {
+		    )) {
 			RTUSBBulkOutDataPacket(pAd, epIdx, pAd->NextBulkOutIndex[epIdx]);
-		} else
-			DBGPRINT(RT_DEBUG_INFO, ("%s, LatchRfRegs %d, CommonCfg.Channel %d\n",
-				__func__, pAd->LatchRfRegs.Channel, pAd->CommonCfg.Channel));
+		}
 	}
 }
 

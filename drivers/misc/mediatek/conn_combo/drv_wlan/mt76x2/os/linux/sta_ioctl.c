@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2006, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work	and	the
+ * use of a	copyright notice does not imply	otherwise. This	source code
+ * contains	confidential trade secret material of Ralink Tech. Any attemp
+ * or participation	in deciphering,	decoding, reverse engineering or in	any
+ * way altering	the	source code	is stricitly prohibited, unless	the	prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
     Module Name:
@@ -142,9 +145,6 @@ struct iw_priv_args privtab[] = {
 	{RTPRIV_IOCTL_E2P,
 	 IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | 1024,
 	 "e2p"},
-	 { RTPRIV_IOCTL_CH_STAT,
-	 IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | 1024,
-	 "ch_stat" },
 #endif /* DBG */
 
 	{RTPRIV_IOCTL_STATISTICS,
@@ -2652,12 +2652,6 @@ INT rt28xx_sta_ioctl(struct net_device *net_dev, struct ifreq *rq, INT cmd)
 				     NULL, 0, RT_DEV_PRIV_FLAGS_GET(net_dev));
 /*			RTMPIoctlE2PROM(pAd, wrq); */
 		break;
-	case RTPRIV_IOCTL_CH_STAT:
-		RTMP_STA_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_CH_STAT, 0,
-			NULL, 0, RT_DEV_PRIV_FLAGS_GET(net_dev));
-		/*			RTMPIoctlCh_Stat(pAd, wrq); */
-		break;
-
 #ifdef RTMP_RF_RW_SUPPORT
 	case RTPRIV_IOCTL_RF:
 		RTMP_STA_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_RF, 0,

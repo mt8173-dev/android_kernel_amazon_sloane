@@ -286,23 +286,7 @@ INT rt_android_private_command_entry(VOID *pAdSrc, struct net_device *net_dev, s
 
 #define RTMP_DRIVER_ADAPTER_RT28XX_WOW_DISABLE(__pAd)								\
 	RTMP_COM_IoctlHandle(__pAd, NULL, CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_WOW_DISABLE, 0, NULL, 0)
-
-#define RTMP_DRIVER_ADAPTER_RT28XX_INFRA_STATUS(__pAd, __flag)	\
-	RTMP_COM_IoctlHandle(__pAd, NULL,		\
-		CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_INFRA_STATUS, 0, __flag, 0)
-
-#define RTMP_DRIVER_ADAPTER_RT28XX_WOW_RUNSTATUS(__pAd, __flag)	\
-	RTMP_COM_IoctlHandle(__pAd, NULL,		\
-		CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_WOW_RUNSTATUS, 0, __flag, 0)
 #endif /* (defined(WOW_SUPPORT) && defined(RTMP_MAC_USB)) || defined(NEW_WOW_SUPPORT) */
-
-#define RTMP_DRIVER_ADAPTER_RT28XX_CMD_RADIO_OFF(__pAd)			\
-	RTMP_COM_IoctlHandle(__pAd, NULL,		\
-		CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_CMD_RADIO_OFF, 0, NULL, 0)
-
-#define RTMP_DRIVER_ADAPTER_RT28XX_CMD_RADIO_ON(__pAd)			\
-	RTMP_COM_IoctlHandle(__pAd, NULL,		\
-		CMD_RTPRIV_IOCTL_ADAPTER_RT28XX_CMD_RADIO_ON, 0, NULL, 0)
 
 #endif /* CONFIG_PM */
 

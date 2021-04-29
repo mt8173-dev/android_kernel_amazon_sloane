@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -67,7 +70,6 @@ struct _RF_R_M_W_REG;
 enum EVENT_TYPE_ID {
 	RSP_EVT_TYPE_FORCE_DUMP = 2,
 	RSP_EVT_TYPE_FW_LOG = 3,
-	RSP_EVT_TYPE_WOW_EVENT = 5,
 	RSP_EVT_TYPE_TX_STATUS_RSP_EVENT = 8,
 	RSP_EVT_TYPE_COEX_RSP_EVENT = 9,
 	RSP_EVT_TYPE_WOW_RSP_PACKET = 11,
@@ -180,8 +182,6 @@ struct cmd_msg_cb {
 #define CMD_MSG_CB(pkt) ((struct cmd_msg_cb *)(GET_OS_PKT_CB(pkt)))
 #define CMD_MSG_RETRANSMIT_TIMES 3
 #define CMD_MSG_TIMEOUT 1000
-#define TRAFFIC_SWITCH_COMMAND_TIMEOUT		(3000) /* 3 seconds */
-
 
 struct cmd_msg {
 	DL_LIST list;
@@ -497,16 +497,11 @@ int andes_pwr_saving(struct _RTMP_ADAPTER *ad, u32 op, u32 level,
 		     u32 listen_interval, u32 pre_tbtt_lead_time,
 		     u8 tim_byte_offset, u8 tim_byte_pattern);
 int andes_calibration(struct _RTMP_ADAPTER *ad, u32 cal_id, ANDES_CALIBRATION_PARAM *param);
-
 #ifdef NEW_WOW_SUPPORT
-int andes_wow_set_ssid_conf(struct _RTMP_ADAPTER *ad);
 int andes_wow_enable(struct _RTMP_ADAPTER *ad);
 int andes_wow_disable(struct _RTMP_ADAPTER *ad);
 void dump_register_value(struct _RTMP_ADAPTER *ad);
 #endif /* endif */
-int andes_check_tx_rx_disable(struct _RTMP_ADAPTER *ad);
-void andes_suspend_CR_setting(struct _RTMP_ADAPTER *ad);
-void andes_resume_CR_setting(struct _RTMP_ADAPTER *ad, u8 type);
 BOOLEAN is_inband_cmd_processing(struct _RTMP_ADAPTER *ad);
 void andes_cmd_msg_bh(unsigned long param);
 int usb_rx_cmd_msg_submit(struct _RTMP_ADAPTER *ad);

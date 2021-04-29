@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 #ifdef RTMP_MAC_USB
@@ -819,11 +820,6 @@ NDIS_STATUS RTMPInitTxRxRingMemory(IN RTMP_ADAPTER *pAd)
 
 	Status = NICInitTransmit(pAd);
 
-#ifdef RXPKT_THREAD
-	/* Init RX Paket Q and Rx Packet Lock */
-	InitializeQueueHeader(&pAd->rxPktQ);
-	NdisAllocateSpinLock(pAd, &pAd->rxPktQLock);
-#endif /* RXPKT_THREAD */
 	return Status;
 
 }
@@ -1279,6 +1275,7 @@ VOID BeaconUpdateExec(IN PVOID SystemSpecific1,
 		IF_DEV_CONFIG_OPMODE_ON_AP(pAd)
 #endif /* RT_CFG80211_P2P_SUPPORT */
 		{
+			BEACON_SYNC_STRUCT *pBeaconSync = pAd->CommonCfg.pBeaconSync;
 			ULONG UpTime;
 
 			/* update channel utilization */
@@ -1289,7 +1286,7 @@ VOID BeaconUpdateExec(IN PVOID SystemSpecific1,
 #endif /* AP_QLOAD_SUPPORT */
 
 
-			if (pAd->ApCfg.DtimCount == 0) {
+			if (pAd->ApCfg.DtimCount == 0 && pBeaconSync->DtimBitOn) {
 				POS_COOKIE pObj;
 
 				pObj = (POS_COOKIE) pAd->OS_Cookie;

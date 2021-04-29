@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -1198,9 +1201,8 @@ VOID CoexFDDCRFineTune(IN PRTMP_ADAPTER pAd)
 				pAd->CoexMode.FDD_CRUpdated = 0;
 			}
 		} else {
-#if 0
 			/* FDD CR not been updated, check if BT is active, need to apply the FDD CRs */
-			if (BT_STATUS_TEST_LINK_UP(pAd) && !BT_STATUS_TEST_FLAG(pAd, fBTSTATUS_BT_SYNC)) {
+			if (BT_STATUS_TEST_LINK_UP(pAd)) {
 				DBGPRINT(RT_DEBUG_ERROR,
 					 ("* BT is active, apply coex RF and PD CR settings\n"));
 				/****** (1) Narrowest Analog Filter BW(RF 0x24c=0x3F7F7F7F) ********/
@@ -1244,7 +1246,6 @@ VOID CoexFDDCRFineTune(IN PRTMP_ADAPTER pAd)
 
 				pAd->CoexMode.FDD_CRUpdated = 1;
 			}
-#endif
 		}
 	}
 }

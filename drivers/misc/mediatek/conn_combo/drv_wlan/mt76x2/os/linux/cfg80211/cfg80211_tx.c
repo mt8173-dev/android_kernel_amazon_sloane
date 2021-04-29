@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2013, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -639,12 +640,7 @@ BOOLEAN CFG80211_IsNeedTxStatus(IN VOID *pAdOrg, IN UCHAR *pFrame, UINT32 FrameL
 					 ("%s unhandle P2P action subtype\n", __func__));
 			}
 		}
-	} else if (ieee80211_is_probe_resp(mgmt->frame_control)) {
-		pAd->cfg80211_ctrl.IsNeedTxStatus = FALSE;
-		DBGPRINT(RT_DEBUG_TRACE,
-					 ("%s force probe_resp no ack, Seq = %d\n", __func__, pAd->Sequence));
 	}
-
 	return IsNeedTxStatus;
 }
 

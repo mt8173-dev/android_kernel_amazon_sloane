@@ -34,29 +34,29 @@ MODULE_LICENSE("Dual BSD/GPL");
 #define WIFI_LOG_ERR                  0
 
 
-static unsigned int gDbgLevel = 0;
+static unsigned int gDbgLevel = WIFI_LOG_INFO;
 
 #define WIFI_DBG_FUNC(fmt, arg...) \
 do { \
-	if (gDbgLevel == 0) \
+	if (gDbgLevel >= WIFI_LOG_DBG) \
 		printk(PFX "%s: "  fmt, __func__ , ##arg); \
 } while (0)
 
 #define WIFI_INFO_FUNC(fmt, arg...) \
 do { \
-	if (gDbgLevel == 0) \
+	if (gDbgLevel >= WIFI_LOG_INFO) \
 		printk(PFX "%s: "  fmt, __func__ , ##arg); \
 } while (0)
 
 #define WIFI_WARN_FUNC(fmt, arg...) \
 do { \
-	if (gDbgLevel == 0) \
+	if (gDbgLevel >= WIFI_LOG_WARN) \
 		printk(PFX "%s: "  fmt, __func__ , ##arg); \
 } while (0)
 
 #define WIFI_ERR_FUNC(fmt, arg...) \
 do { \
-	if (gDbgLevel == 0) \
+	if (gDbgLevel >= WIFI_LOG_ERR) \
 		printk(PFX "%s: "  fmt, __func__ , ##arg); \
 } while (0)
 

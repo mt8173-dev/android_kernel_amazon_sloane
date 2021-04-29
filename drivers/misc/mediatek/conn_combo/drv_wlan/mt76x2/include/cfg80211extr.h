@@ -1,14 +1,15 @@
 /****************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2013, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************/
 
 /****************************************************************************
@@ -142,7 +143,7 @@ BOOLEAN CFG80211DRV_OpsScanExtraIesSet(VOID *pAdOrg);
 
 VOID CFG80211DRV_OpsScanInLinkDownAction(VOID *pAdOrg);
 
-INT CFG80211DRV_OpsScanGetNextChannel(VOID *pAdOrg, BOOLEAN pending);
+INT CFG80211DRV_OpsScanGetNextChannel(VOID *pAdOrg);
 
 VOID CFG80211_ScanStatusLockInit(VOID *pAdCB, UINT init);
 
@@ -238,11 +239,7 @@ VOID CFG80211_RegHint11D(VOID *pAdCB, UCHAR *pCountryIe, ULONG CountryIeLen);
 
 VOID CFG80211_RegRuleApply(VOID *pAdCB, VOID *pWiphy, UCHAR *pAlpha2);
 
-NDIS_STATUS CFG80211_SyncCore_ChList(IN VOID *pAdCB, IN VOID *pWiphy);
-
 BOOLEAN CFG80211_SupBandReInit(VOID *pAdCB);
-
-UCHAR CFG80211DRV_GetDFSRegion(RTMP_ADAPTER *pAd, char Alpha2_0, char Alpha2_1);
 
 #ifdef RFKILL_HW_SUPPORT
 VOID CFG80211_RFKillStatusUpdate(PVOID pAd, BOOLEAN active);

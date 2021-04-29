@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -70,7 +73,7 @@
 #define SHORT_CHANNEL_TIME          90	/* unit: msec */
 #define MIN_CHANNEL_TIME            110	/* unit: msec, for dual band scan */
 #define MAX_CHANNEL_TIME            140	/* unit: msec, for single band scan */
-#define FAST_ACTIVE_SCAN_TIME	    40	/* Active scan waiting for probe response time */
+#define FAST_ACTIVE_SCAN_TIME	    20	/* Active scan waiting for probe response time */
 
 #define AUTO_CHANNEL_SEL_TIMEOUT	200	/* uint: msec */
 #define LINK_DOWN_TIMEOUT           20000	/* unit: msec */
@@ -1064,9 +1067,6 @@ typedef struct _MLME_AUX {
 	UCHAR ScanType;
 	UCHAR Channel;
 	UCHAR CentralChannel;
-	ULONG OpChannelTime;
-	UINT FastScanChannelTime;
-	BOOLEAN ScanDisable;
 
 /* yiwei tbd , for bw , ext channel! */
 #ifdef CONFIG_MULTI_CHANNEL
@@ -1240,7 +1240,6 @@ typedef struct GNU_PACKED _EID_STRUCT {
 /*#define TX_WEIGHTING                     40 */
 /*#define RX_WEIGHTING                     60 */
 
-#define MAC_TABLE_LONG_AGEOUT_TIME		2419200	/* unit: sec */
 #define MAC_TABLE_AGEOUT_TIME			300	/* unit: sec */
 #define MAC_TABLE_MIN_AGEOUT_TIME		60	/* unit: sec */
 #define MAC_TABLE_ASSOC_TIMEOUT			5	/* unit: sec */

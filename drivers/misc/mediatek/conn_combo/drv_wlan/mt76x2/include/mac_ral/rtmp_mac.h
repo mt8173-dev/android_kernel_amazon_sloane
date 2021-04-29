@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology	5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering	the source code	is stricitly prohibited, unless	the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -800,18 +803,8 @@ typedef union _IFS_SLOT_CFG_STRUC {
 #define BKOFF_SLOT_CFG_CC_DELAY_TIME_MASK (0x0f << 8)
 #define BKOFF_SLOT_CFG_CC_DELAY_TIME(p) (((p) & 0x0f) << 8)
 
-#define NAV_TIME_CFG                        0x1108
-#define CH_TIME_CFG                         0x110C
-#define CH_TIME_CFG_TIMER_EN_MASK           0x0001
-#define CH_TIME_CFG_TX_AS_CH_BUSY_MASK      (0x0001 << 1)
-#define CH_TIME_CFG_RX_AS_CH_BUSY_MASK      (0x0001 << 2)
-#define CH_TIME_CFG_NAV_AS_CH_BUSY_MASK     (0x0001 << 3)
-#define CH_TIME_CFG_EIFS_AS_CH_BUSY_MASK    (0x0001 << 4)
-#define CH_TIME_CFG_MDRDY_CNT_EN_MASK       (0x0001 << 5)
-#define CH_TIME_CFG_CCA_RC_EN_MASK          (0x0001 << 6)
-#define CH_TIME_CFG_CH_TIMER_RC_MASK        (0x0001 << 8)
-#define CH_TIME_CFG_MDRDY_CNT_RC_MASK       (0x0001 << 10)
-
+#define NAV_TIME_CFG		0x1108
+#define CH_TIME_CFG			0x110C
 #define PBF_LIFE_TIMER		0x1110	/*TX/RX MPDU timestamp timer (free run)Unit: 1us */
 
 /* BCN_TIME_CFG : Synchronization control register */
@@ -855,9 +848,7 @@ typedef union _BCN_TIME_CFG_STRUC {
 
 #define CH_IDLE_STA			0x1130	/* channel idle time */
 #define CH_BUSY_STA			0x1134	/* channle busy time */
-#define CH_BUSY_STA_SEC		0x1138	/* channel busy time for secondary channel */
-
-#define MDRDY_CNT 			0x1144	/* Media Ready Counter,up count while receiving 802.11 frame. */
+#define CH_BUSY_STA_SEC	0x1138	/* channel busy time for secondary channel */
 
 /*  4.2 MAC POWER  configuration registers (offset:0x1200) */
 #define MAC_STATUS_CFG		0x1200
@@ -1609,7 +1600,7 @@ typedef union _AUTO_RSP_CFG_STRUC {
 
 #define EXT_CCA_CFG			0x141c
 
-#if defined(MAC_APCLI_SUPPORT) || defined(STA_P2P_CONNCURRENT)
+#ifdef MAC_APCLI_SUPPORT
 #define APCLI_BSSID_IDX			8
 #define MAC_APCLI_BSSID_DW0		0x1090
 #define MAC_APCLI_BSSID_DW1		0x1094
@@ -1632,7 +1623,6 @@ typedef union _AUTO_RSP_CFG_STRUC {
 #define TX_SEC_CNT0		0x1500
 #define RX_SEC_CNT0		0x1504
 #define CCMP_FC_MUTE	0x1508
-#define PN_PAD_MODE		0x150c
 
 /*  4.6 HCCA/PSMP (offset:0x1600) */
 #define TXOP_HLDR_ADDR0		0x1600
@@ -2516,9 +2506,6 @@ typedef union _QOS_CSR1_STRUC {
 #define QID_CTRL				16
 #endif /* CONFIG_ANDES_SUPPORT */
 
-#ifdef RXPKT_THREAD
-#define CFG_RX_OS_LOOP_CNT 4
-#endif /* RXPKT_THREAD */
 
 
 #define RTMP_MAC_SHR_MSEL_PROTECT_LOCK(__pAd, __IrqFlags)	__IrqFlags = __IrqFlags;

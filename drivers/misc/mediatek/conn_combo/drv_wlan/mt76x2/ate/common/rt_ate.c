@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology	5th	Rd.
+ * Science-based Industrial	Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2010, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved.	Ralink's source	code is	an unpublished work	and	the
+ * use of a	copyright notice does not imply	otherwise. This	source code
+ * contains	confidential trade secret material of Ralink Tech. Any attemp
+ * or participation	in deciphering,	decoding, reverse engineering or in	any
+ * way altering	the	source code	is stricitly prohibited, unless	the	prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -1889,8 +1892,6 @@ static NDIS_STATUS TXFRAME(IN PRTMP_ADAPTER pAd)
 #ifdef RTMP_TEMPERATURE_COMPENSATION
 #endif /* RTMP_TEMPERATURE_COMPENSATION */
 	UINT32 i = 0;
-	UINT32 phy_mode = 0;
-	UINT32 adjust_time = ADJUST_POWER_TIME;
 
 #ifdef RTMP_INTERNAL_TX_ALC
 #if defined(RT3350) || defined(RT3352)
@@ -2140,40 +2141,17 @@ static NDIS_STATUS TXFRAME(IN PRTMP_ADAPTER pAd)
 	}
 #endif
 #endif
-
+	DBGPRINT(RT_DEBUG_TRACE, ("ATE : <=== %s\n", __func__));
 #ifdef MT76x2
 		if (IS_MT76x2(pAd)) {
 			if ((pATEInfo->Mode == ATE_TXFRAME) && (pATEInfo->bAutoTxAlc == TRUE)) {
-				pATEInfo->bAdjustTxPwr = TRUE;
-#ifdef RLT_MAC
-				if (pAd->chipCap.hif_type == HIF_RLT)
-					phy_mode = pATEInfo->TxWI.TXWI_N.PHYMODE;
-#endif /* RLT_MAC */
-
-#ifdef RTMP_MAC
-				if (pAd->chipCap.hif_type == HIF_RTMP)
-					phy_mode = pATEInfo->TxWI.TXWI_O.PHYMODE;
-#endif /* RTMP_MAC */
-				switch (phy_mode) {
-				case MODE_CCK:
-					/* Increase adjust time for CCK */
-					adjust_time = ADJUST_POWER_TIME * 5;
-					break;
-				default:
-					adjust_time = ADJUST_POWER_TIME;
-					break;
-				}
-
-				for (i = 0; i < adjust_time; i++) {
-					OS_WAIT(20);
+				for (i = 0; i < ADJUST_POWER_TIME; i++) {
 					ATEAsicAdjustTxPower(pAd);
+					OS_WAIT(20);
 				}
-				OS_WAIT(20);
-				pATEInfo->bAdjustTxPwr = FALSE;
 			}
 		}
 #endif /* MT76x2 */
-	DBGPRINT(RT_DEBUG_TRACE, ("ATE : <=== %s\n", __func__));
 	return Status;
 }
 
@@ -5635,7 +5613,6 @@ NDIS_STATUS ATEInit(IN PRTMP_ADAPTER pAd)
 	pATEInfo->bQATxStart = FALSE;
 	pATEInfo->bQARxStart = FALSE;
 	pATEInfo->bAutoTxAlc = FALSE;
-	pATEInfo->bAdjustTxPwr = FALSE;
 	pATEInfo->bLowTemperature = FALSE;
 #ifdef SINGLE_SKU_V2
 	pATEInfo->bDoSingleSKU = FALSE;
@@ -6067,9 +6044,7 @@ VOID ATEPeriodicExec(IN PVOID SystemSpecific1,
 		pATEInfo->PeriodicRound++;
 #ifdef MT76x2
 		if (IS_MT76x2(pAd)) {
-			if ((pATEInfo->Mode == ATE_TXFRAME) &&
-			    (pATEInfo->bAutoTxAlc == TRUE) &&
-			    (pATEInfo->bAdjustTxPwr == FALSE)) {
+			if ((pATEInfo->Mode == ATE_TXFRAME) && (pATEInfo->bAutoTxAlc == TRUE)) {
 				ATEAsicAdjustTxPower(pAd);
 			}
 		}

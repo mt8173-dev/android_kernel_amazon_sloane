@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * MediaTek Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2015 MediaTek, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. MediaTek source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of MediaTek. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of MediaTek Technology, Inc. is obtained.
  ***************************************************************************
  */
 #ifndef	__ED_MONITOR_COMM_H__
@@ -18,9 +21,6 @@
 #ifdef ED_MONITOR
 
 #include "rtmp.h"
-
-extern VOID ed_PeriodicExec(PVOID SystemSpecific1,
-		      PVOID FunctionContext, PVOID SystemSpecific2, PVOID SystemSpecific3);
 
 extern INT ed_status_read(RTMP_ADAPTER *pAd);
 extern VOID ed_monitor_init(RTMP_ADAPTER *pAd);
@@ -43,7 +43,6 @@ extern INT set_ed_current_rssi_threhold_proc(RTMP_ADAPTER *pAd, PSTRING arg);
 extern INT set_ed_block_tx_thresh(RTMP_ADAPTER *pAd, PSTRING arg);
 extern INT set_ed_false_cca_threshold(RTMP_ADAPTER *pAd, PSTRING arg);
 extern INT set_ed_threshold(RTMP_ADAPTER *pAd, PSTRING arg);
-extern INT set_ed_period(RTMP_ADAPTER *pAd, PSTRING arg);
 extern INT show_ed_stat_proc(RTMP_ADAPTER *pAd, PSTRING arg);
 #endif /* ED_MONITOR */
 

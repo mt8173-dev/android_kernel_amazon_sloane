@@ -1,15 +1,18 @@
 /*
  ***************************************************************************
- * Copyright (c) 2015 MediaTek Inc.
+ * Ralink Tech Inc.
+ * 4F, No. 2 Technology 5th Rd.
+ * Science-based Industrial Park
+ * Hsin-chu, Taiwan, R.O.C.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * (c) Copyright 2002-2004, Ralink Technology, Inc.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * All rights reserved. Ralink's source code is an unpublished work and the
+ * use of a copyright notice does not imply otherwise. This source code
+ * contains confidential trade secret material of Ralink Tech. Any attemp
+ * or participation in deciphering, decoding, reverse engineering or in any
+ * way altering the source code is stricitly prohibited, unless the prior
+ * written consent of Ralink Technology, Inc. is obtained.
  ***************************************************************************
 
 	Module Name:
@@ -114,18 +117,6 @@ VOID RTMPWriteTxWI(IN RTMP_ADAPTER * pAd, IN TXWI_STRUC * pOutTxWI, IN BOOLEAN F
 		mpdu_density = pMac->MpduDensity;
 	}
 
-#ifdef MT76XX_BTCOEX_SUPPORT
-	if (IS_MT76XXBTCOMBO(pAd) && (BT_STATUS_TEST_FLAG(pAd, fBTSTATUS_BT_ACTIVE))) {
-		if ((pAd->CoexMode.CurrentMode == COEX_MODE_FDD) &&
-			(pTransmit->field.BW > BW_20) && (pAd->CommonCfg.Channel < 14)) {
-			DBGPRINT(RT_DEBUG_INFO,
-				 (" %s, ORI BW:%x, CH:%u\n", __func__
-				 , bw, pAd->CommonCfg.Channel));
-			bw = BW_20;
-			pTransmit->field.BW = BW_20;
-		}
-	}
-#endif /* MT76XX_BTCOEX_SUPPORT */
 #ifdef TXBF_SUPPORT
 	eTxBf = pTransmit->field.eTxBF;
 	iTxBf = pTransmit->field.iTxBF;
@@ -299,7 +290,6 @@ VOID RTMPWriteTxWI_Data(RTMP_ADAPTER *pAd, TXWI_STRUC *pTxWI, TX_BLK *pTxBlk)
 	bw = (pTransmit->field.MODE <= MODE_OFDM) ? (BW_20) : (pTransmit->field.BW);
 
 #ifdef MT76x2
-
 	if (MT_REV_GTE(pAd, MT76x2, REV_MT76x2E4))
 		tx_stream_mode = 0x13;
 	else if (MT_REV_ET(pAd, MT76x2, REV_MT76x2E3))
@@ -466,19 +456,6 @@ VOID RTMPWriteTxWI_Data(RTMP_ADAPTER *pAd, TXWI_STRUC *pTxWI, TX_BLK *pTxBlk)
 		lut_enable = TRUE;
 #endif /* PEER_DELBA_TX_ADAPT */
 #endif /* MCS_LUT_SUPPORT */
-
-#ifdef MT76XX_BTCOEX_SUPPORT
-	if (IS_MT76XXBTCOMBO(pAd) && (BT_STATUS_TEST_FLAG(pAd, fBTSTATUS_BT_ACTIVE))) {
-		if ((pAd->CoexMode.CurrentMode == COEX_MODE_FDD) &&
-			(pTransmit->field.BW > BW_20) && (pAd->CommonCfg.Channel < 14)) {
-			DBGPRINT(RT_DEBUG_INFO,
-				 (" %s, ORI BW:%x, CH:%u\n", __func__
-				 , bw, pAd->CommonCfg.Channel));
-			bw = BW_20;
-			pTransmit->field.BW = BW_20;
-		}
-	}
-#endif /* MT76XX_BTCOEX_SUPPORT */
 
 #ifdef TXBF_SUPPORT
 #ifdef MCS_LUT_SUPPORT
@@ -741,18 +718,6 @@ VOID RTMPWriteTxWI_Cache(RTMP_ADAPTER *pAd, TXWI_STRUC *pTxWI, TX_BLK *pTxBlk)
 	}
 #endif /* TXBF_SUPPORT */
 
-#ifdef MT76XX_BTCOEX_SUPPORT
-	if (IS_MT76XXBTCOMBO(pAd) && (BT_STATUS_TEST_FLAG(pAd, fBTSTATUS_BT_ACTIVE))) {
-		if ((pAd->CoexMode.CurrentMode == COEX_MODE_FDD) &&
-			(pTransmit->field.BW > BW_20) && (pAd->CommonCfg.Channel < 14)) {
-			DBGPRINT(RT_DEBUG_INFO,
-				 (" %s, ORI BW:%x CH:%u\n", __func__
-				 , bw, pAd->CommonCfg.Channel));
-			bw = BW_20;
-			pTransmit->field.BW = BW_20;
-		}
-	}
-#endif /* MT76XX_BTCOEX_SUPPORT */
 
 #ifdef CONFIG_FPGA_MODE
 	if (pMacEntry && (pAd->fpga_ctl.fpga_on & 0x6)) {
@@ -1039,7 +1004,6 @@ VOID ReSyncBeaconTime(RTMP_ADAPTER *pAd)
 {
 	UINT32 Offset;
 	BCN_TIME_CFG_STRUC csr;
-	u32 ret;
 
 	Offset = (pAd->TbttTickCount) % (BCN_TBTT_OFFSET);
 	pAd->TbttTickCount++;
@@ -1048,16 +1012,6 @@ VOID ReSyncBeaconTime(RTMP_ADAPTER *pAd)
 	   The updated BeaconInterval Value will affect Beacon Interval after two TBTT
 	   beacasue the original BeaconInterval had been loaded into next TBTT_TIMER
 	 */
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_WAIT(&pAd->bcn_time_atomic, ret);
-		if (ret != 0) {
-			DBGPRINT(RT_DEBUG_ERROR, ("bcn_time_atomic get failed(ret=%d)\n", ret));
-			return;
-		}
-	}
-#endif /* RTMP_MAC_USB */
-
 	if (Offset == (BCN_TBTT_OFFSET - 2)) {
 		RTMP_IO_READ32(pAd, BCN_TIME_CFG, &csr.word);
 
@@ -1069,12 +1023,6 @@ VOID ReSyncBeaconTime(RTMP_ADAPTER *pAd)
 		csr.field.BeaconInterval = (pAd->CommonCfg.BeaconPeriod) << 4;
 		RTMP_IO_WRITE32(pAd, BCN_TIME_CFG, csr.word);
 	}
-
-#ifdef RTMP_MAC_USB
-	if (IS_USB_INF(pAd)) {
-		RTMP_SEM_EVENT_UP(&pAd->bcn_time_atomic);
-	}
-#endif /* RTMP_MAC_USB */
 }
 
 VOID rtmp_mac_bcn_buf_init(IN RTMP_ADAPTER *pAd)
@@ -1254,7 +1202,7 @@ RTMP_REG_PAIR MACRegTable[] = {
 	,
 
 
-	{TXOP_CTRL_CFG, 0x0400583f, /*0x0000243f *//*0x000024bf */ }
+	{TXOP_CTRL_CFG, 0x0000583f, /*0x0000243f *//*0x000024bf */ }
 	,			/*Extension channel backoff. */
 	{TX_RTS_CFG, 0x00092b20}
 	,
