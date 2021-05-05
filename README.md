@@ -11,13 +11,13 @@ BUILD INSTRUCTIONS?
 Specific sources are separated by releases with it's corresponding number. First, you should
 clone the project:
 
-        $ git clone -b cm-14.1 https://github.com/sloane-development/android_kernel_amazon_sloane.git kernel 
+        $ git clone -b lineage-16.0 https://github.com/sloane-development/android_kernel_amazon_sloane.git kernel 
 
 At the same level of the "kernel" directory:
 
 Download a prebuilt gcc
 
-        $ git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 -b nougat-release 
+        $ git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 -b pie-release 
 
 Create KERNEL_OUT dir:
 
