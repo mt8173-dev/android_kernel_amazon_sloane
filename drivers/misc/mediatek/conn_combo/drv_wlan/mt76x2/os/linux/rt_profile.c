@@ -100,16 +100,22 @@ VOID get_dev_config_idx(RTMP_ADAPTER *pAd)
 
 	A2Hex(first_card, FIRST_CHIP_ID);
 	A2Hex(second_card, SECOND_CHIP_ID);
-	DBGPRINT(RT_DEBUG_TRACE,
-		 ("chip_id1=0x%x, chip_id2=0x%x, pAd->MACVersion=0x%x\n", first_card, second_card,
-		  pAd->MACVersion));
+	DBGPRINT(RT_DEBUG_ERROR, ("chip_id1=0x%x, chip_id2=0x%x, pAd->MACVersion=0x%x\n", first_card, second_card, pAd->MACVersion));
+//	DBGPRINT(RT_DEBUG_TRACE,
+//		 ("chip_id1=0x%x, chip_id2=0x%x, pAd->MACVersion=0x%x\n", first_card, second_card,
+//		  pAd->MACVersion));
 
 /* if ((pAd->MACVersion & chip_id) == CONFIG_RT_SECOND_CARD) */
 /* pAd->flash_offset = SECOND_RF_OFFSET; */
 
-	if ((first_card == second_card) || IS_MT76x2(pAd)) {
+	if ((first_card == second_card)) {
 		idx = probe_cnt;
 		probe_cnt--;
+	} else if(IS_MT76x2(pAd)) {
+		if (IS_MT7602(pAd))
+			idx = 0;
+		else
+			idx = 1;
 	} else {
 		if (IS_RT8592(pAd))
 			idx = 0;
